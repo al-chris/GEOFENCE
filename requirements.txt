@@ -1,0 +1,4 @@
+filterpy>=1.4.5
+shapely>=2.0.0
+numpy>=1.24.0
+RPi.GPIO>=0.7.1

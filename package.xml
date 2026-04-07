@@ -1,0 +1,16 @@
+<package format='3'>
+  <name>virtual_geofence</name>
+  <version>0.1.0</version>
+  <description>Virtual geo-fencing for autonomous lawn mower</description>
+  <maintainer email='student@example.com'>OLABIYI Judah</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nmea_navsat_driver</depend>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+</package>

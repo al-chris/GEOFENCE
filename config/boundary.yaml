@@ -1,0 +1,14 @@
+# File: virtual_geofence/config/boundary.yaml
+geofence_node:
+  ros__parameters:
+    boundary_coords:
+      - 7.5180
+      - 4.5160
+      - 7.5190
+      - 4.5160
+      - 7.5190
+      - 4.5170
+      - 7.5180
+      - 4.5170
+    kalman_process_noise: 0.01
+    kalman_measurement_noise: 2.5
