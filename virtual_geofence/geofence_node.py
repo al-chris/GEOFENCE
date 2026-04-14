@@ -19,7 +19,7 @@ class GeoFenceNode(Node):
         super().__init__('geofence_node')
 
         # Parameters
-        self.declare_parameter('boundary_coords', [])
+        self.declare_parameter('boundary_coords', [0.0])
         self.declare_parameter('kalman_process_noise', 0.01)
         self.declare_parameter('kalman_measurement_noise', 2.5)
 
