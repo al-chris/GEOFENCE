@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Geofence Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    html,body,#map{height:100%;margin:0;padding:0}
+    #info{position:absolute;right:10px;top:10px;background:#fff;padding:8px;border-radius:6px;box-shadow:0 1px 6px rgba(0,0,0,0.2);z-index:1000;font-family:Arial,Helvetica,sans-serif;font-size:13px}
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="info">Loading...</div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+  <script>
+    // Boundary coordinates (lat, lon)
+    const boundaryCoords = [
+      [7.5180, 4.5160],
+      [7.5190, 4.5160],
+      [7.5190, 4.5170],
+      [7.5180, 4.5170]
+    ];
+
+    // Circle center & radius (can be adjusted)
+    const center = [7.5185, 4.5168];
+    const radius_m = 50;
+
+    const map = L.map('map').setView(center, 18);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 22,
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    const poly = L.polygon(boundaryCoords, {color:'red', fillColor:'orange', fillOpacity:0.3}).addTo(map);
+    const circ = L.circle(center, {radius: radius_m, color:'blue', fill:false}).addTo(map);
+    const marker = L.marker(center).addTo(map).bindPopup('Fence center');
+
+    map.fitBounds(poly.getBounds().pad(1.2));
+
+    function updateInfo(){
+      // turf uses [lon, lat]
+      const polyGeo = turf.polygon([boundaryCoords.map(c=>[c[1], c[0]])]);
+      const polyArea = turf.area(polyGeo); // m^2
+      const circleGeo = turf.circle([center[1], center[0]], radius_m, {steps:64, units:'meters'});
+      const intersects = turf.booleanIntersects(polyGeo, circleGeo);
+      let interArea = 0;
+      if (intersects){
+        const inter = turf.intersect(polyGeo, circleGeo);
+        if (inter) interArea = turf.area(inter);
+      }
+      document.getElementById('info').innerHTML =
+        `<b>Boundary area:</b> ${polyArea.toFixed(2)} m²<br>` +
+        `<b>Circle radius:</b> ${radius_m} m<br>` +
+        `<b>Intersects:</b> ${intersects ? 'Yes' : 'No'}<br>` +
+        (intersects ? `<b>Intersection area:</b> ${interArea.toFixed(2)} m²` : '');
+    }
+    updateInfo();
+  </script>
+</body>
+</html>
