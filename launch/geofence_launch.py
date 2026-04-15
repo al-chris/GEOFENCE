@@ -15,7 +15,8 @@ def generate_launch_description():
             name='gps_driver',
             output='screen',
             parameters=[{
-                'port': '/dev/ttyS0',
+                # Use the system serial port matching your device
+                'port': '/dev/ttyAMA0',
                 'baud': 9600,
                 'frame_id': 'gps',
             }]

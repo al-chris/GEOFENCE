@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geofence Fix Flow Diagram</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        /* Force the Mermaid SVG to scale up and use the available width */
+        .mermaid svg {
+            width: 100% !important;
+            height: auto !important;
+            max-width: 100% !important;
+        }
+
+        /* --- VISIBILITY ENHANCEMENTS FOR LARGE PRINT --- */
+        /* Make all text bolder */
+        .mermaid text {
+            font-weight: 700 !important;
+        }
+        /* Make actor boxes and lines thicker */
+        .mermaid rect.actor,
+        .mermaid .actor-line {
+            stroke-width: 8px !important;
+        }
+        /* Make message arrow lines thicker */
+        .mermaid .messageLine0, 
+        .mermaid .messageLine1 {
+            stroke-width: 6px !important;
+        }
+        /* Make loop boxes thicker */
+        .mermaid .loopLine {
+            stroke-width: 5px !important;
+        }
+        .mermaid .labelBox {
+            stroke-width: 4px !important;
+        }
+
+        /* --- MASSIVE FONT SIZES FOR TEXT --- */
+        .mermaid text.actor, .mermaid text.actor > tspan {
+            font-size: 64px !important;
+            font-weight: 800 !important;
+        }
+        .mermaid text.messageText, .mermaid text.messageText > tspan {
+            font-size: 48px !important;
+            font-weight: 700 !important;
+        }
+        .mermaid text.labelText, .mermaid text.labelText > tspan {
+            font-size: 44px !important;
+            font-weight: 700 !important;
+        }
+        .mermaid .loopText, .mermaid .loopText > tspan {
+            font-size: 44px !important;
+            font-weight: 700 !important;
+        }
+
+        /* --- PRINT STYLES FOR A3 PAPER --- */
+        @media print {
+            @page {
+                size: A3 landscape;
+                margin: 1cm;
+            }
+            body {
+                background: white !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            /* Hide the UI elements when printing */
+            .ui-hide-print {
+                display: none !important;
+            }
+            /* Remove borders and shadows from the container */
+            .print-no-border {
+                border: none !important;
+                box-shadow: none !important;
+                max-width: 100% !important;
+            }
+            .mermaid svg {
+                max-height: 100vh !important;
+            }
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: '#f8fafc'
+                    }
+                }
+            }
+        }
+        // Initialize Mermaid with a clean theme and larger base variables
+        mermaid.initialize({ 
+            startOnLoad: true, 
+            theme: 'neutral',
+            useMaxWidth: false,
+            sequence: {
+                actorMargin: 300, // Massive spread to fit huge text
+                messageMargin: 150, // Massive breathing room
+                boxMargin: 80,
+                width: 500, // Massive actor boxes
+                height: 120, // Taller actor boxes
+                actorFontSize: 64,   // Explicitly inside sequence config
+                messageFontSize: 48, // Explicitly inside sequence config
+                noteFontSize: 48     // Explicitly inside sequence config
+            }
+        });
+    </script>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center p-4 sm:p-8 font-sans">
+    
+    <div class="bg-white w-full max-w-7xl rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col print-no-border">
+        <!-- Header -->
+        <div class="bg-gray-50 border-b border-gray-200 px-6 py-4 flex items-center justify-between ui-hide-print">
+            <h1 class="text-xl font-semibold text-gray-800 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-500"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M8 12h8"></path><path d="M12 8v8"></path></svg>
+                Geofence Fix Flow
+            </h1>
+            <span class="text-xs font-medium bg-indigo-100 text-indigo-700 px-2.5 py-1 rounded-full">Sequence Diagram</span>
+        </div>
+
+        <!-- Diagram Container -->
+        <div class="p-6 overflow-x-auto bg-white min-h-[500px] w-full print-no-border">
+            <div class="mermaid text-base w-full min-w-[1200px] flex justify-center">
+sequenceDiagram
+    participant G as "GNSS Receiver"
+    participant D as "Serial Driver / gpsd"
+    participant P as "NMEA Parser"
+    participant R as "ROS2 Publisher"
+    participant F as "GeoFence Node"
+    participant HW as "GPIO Hardware"
+    participant U as "User / Operator"
+
+    note right of G: Satellites (GPS/GLONASS/BeiDou/Galileo)
+    G->>D: raw NMEA / UBX frames (UART / USB / TCP)
+    D->>P: deliver raw sentences/frames
+    P->>R: publish sensor_msgs/NavSatFix on /gps/fix
+    R->>F: NavSatFix -> gps_callback(lat,lon,status)
+
+    F->>F: Kalman filter init/update (filter noisy fixes)
+    F->>F: point-in-polygon check (shapely, lon/lat order)
+
+    alt inside
+        F->>HW: green ON; red OFF; buzzer OFF
+        F-->>U: log "inside"
+    else outside
+        F->>HW: red ON; buzzer ON; green OFF
+        F->>R: publish Twist on /cmd_vel (stop)
+        F-->>U: log "BOUNDARY CROSSED"
+    end
+
+    note left of R: NavSatFix includes latitude, longitude, status, covariance
+    note over G: optional RTK corrections (NTRIP/base station)
+    note over P: simulated publishers (e.g., mock_gps_publisher) provide test fixes
+            </div>
+        </div>
+    </div>
+
+    <!-- Instructions / Footer -->
+    <div class="mt-6 text-sm text-gray-500 text-center max-w-2xl ui-hide-print">
+        <p>This diagram shows how a GPS "fix" flows from the GNSS receiver through drivers/parsers into ROS as a `NavSatFix`, then into the `geofence_node` which applies filtering and polygon checks before changing GPIO or publishing stop commands.</p>
+        <p class="mt-2 text-indigo-600 font-medium">Tip: open this file in a browser and print to A3 Landscape.</p>
+    </div>
+
+</body>
+</html>

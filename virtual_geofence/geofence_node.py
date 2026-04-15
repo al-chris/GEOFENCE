@@ -24,14 +24,31 @@ class GeoFenceNode(Node):
         self.declare_parameter('kalman_measurement_noise', 2.5)
 
         raw = self.get_parameter('boundary_coords').value
-        if len(raw) < 6 or len(raw) % 2 != 0:
+
+        # If parameter not provided or invalid, try loading config/boundary.yaml
+        if not raw or len(raw) < 6 or len(raw) % 2 != 0:
+            try:
+                cfg_path = os.path.normpath(
+                    os.path.join(os.path.dirname(__file__), '..', 'config', 'boundary.yaml')
+                )
+                if os.path.exists(cfg_path):
+                    with open(cfg_path, 'r') as fh:
+                        data = yaml.safe_load(fh)
+                    raw_cfg = data.get('geofence_node', {}).get('ros__parameters', {}).get('boundary_coords', [])
+                    if raw_cfg and len(raw_cfg) >= 6 and len(raw_cfg) % 2 == 0:
+                        raw = raw_cfg
+                        self.get_logger().info(f'Loaded boundary_coords from {cfg_path}')
+            except Exception as e:
+                self.get_logger().warning(f'Could not load fallback boundary file: {e}')
+
+        if not raw or len(raw) < 6 or len(raw) % 2 != 0:
             self.get_logger().fatal(
                 'boundary_coords must have >= 3 pairs of [lat, lon]. Shutting down.'
             )
             raise SystemExit(1)
 
         coords = [
-            (raw[i + 1], raw[i])
+            (float(raw[i + 1]), float(raw[i]))
             for i in range(0, len(raw), 2)
         ]
         self.boundary = Polygon(coords)
@@ -101,6 +118,10 @@ class GeoFenceNode(Node):
 
         lat_raw, lon_raw = msg.latitude, msg.longitude
 
+        if not np.isfinite(lat_raw) or not np.isfinite(lon_raw):
+            self.get_logger().warning('Invalid GPS coordinates received; skipping update.')
+            return
+
         if not self._kf_initialised:
             self.kf.x = np.array([lat_raw, lon_raw, 0.0, 0.0])
             self._kf_initialised = True
@@ -121,7 +142,15 @@ class GeoFenceNode(Node):
         )
 
         point = Point(f_lon, f_lat)
-        inside = self.boundary.contains(point)
+        # treat points on the boundary as inside (covers), fall back to contains/touches
+        try:
+            inside = self.boundary.covers(point)
+        except Exception:
+            inside = self.boundary.contains(point) or self.boundary.touches(point)
+
+        # Log initial state explicitly on first valid fix
+        if self._last_inside is None:
+            self.get_logger().info(f'Initial geofence state: {"INSIDE" if inside else "OUTSIDE"}')
 
         if inside != self._last_inside:
             self._last_inside = inside
