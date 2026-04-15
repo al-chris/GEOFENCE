@@ -113,6 +113,13 @@ sudo usermod -aG gpio $USER
 sudo reboot
 ```
 
+If `/dev/gpiomem` is still root-only, you can temporarily give the `gpio` group access:
+
+```bash
+sudo chown root:gpio /dev/gpiomem
+sudo chmod 660 /dev/gpiomem
+```
+
 ---
 
 ## Part 4: Add the ROS 2 Repository & Install
@@ -217,7 +224,7 @@ Expected output:
 [INFO] Virtual Geo-fencing Node started.
 ```
 
-> **Note:** The GPIO error is expected when testing without hardware. The node continues running normally. On physical hardware, run with `sudo` to enable GPIO.
+> **Note:** The GPIO error is expected when testing without hardware. The node continues running normally. If you've added your user to `gpio` and applied the `/dev/gpiomem` udev rule (or adjusted permissions), you can run the node as your normal user — `sudo` is not required.
 
 ### Terminal 2: Start the Mock GPS
 
@@ -256,6 +263,26 @@ Connect the NEO-M8N GPS module to the Raspberry Pi 3 GPIO header as follows:
 
 > The UART is available on `/dev/ttyAMA0` after applying the Bluetooth disable overlay in Part 2.
 
+### Serial device permissions
+
+If you receive "Permission denied" when opening `/dev/ttyAMA0`, ensure your user is in the `dialout` group (most serial devices are owned by `dialout`) and create a persistent udev rule to keep the device group and mode correct:
+
+```bash
+sudo tee /etc/udev/rules.d/60-ttyAMA0.rules > /dev/null <<'EOF'
+KERNEL=="ttyAMA0", SUBSYSTEM=="tty", GROUP="dialout", MODE="0660"
+EOF
+sudo udevadm control --reload-rules
+sudo udevadm trigger --name-match=ttyAMA0
+ls -l /dev/ttyAMA0
+```
+
+If a background service (e.g. `gpsd`) is using the port, stop it before testing:
+
+```bash
+sudo systemctl stop gpsd.socket gpsd || true
+sudo fuser -v /dev/ttyAMA0 || true
+```
+
 ### LED & Buzzer Wiring
 
 Wire the LEDs and buzzer as follows (based on `geofence_node.py`):
@@ -268,8 +295,8 @@ Wire the LEDs and buzzer as follows (based on `geofence_node.py`):
 
 ### Running on Physical Hardware
 
-Start the node with `sudo` to allow GPIO access:
+Start the node (no `sudo` required if GPIO permissions are configured):
 
 ```bash
-sudo ros2 run virtual_geofence geofence_node --ros-args --params-file src/virtual_geofence/config/boundary.yaml
+ros2 run virtual_geofence geofence_node --ros-args --params-file src/virtual_geofence/config/boundary.yaml
 ```
