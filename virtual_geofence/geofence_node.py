@@ -47,7 +47,8 @@ class GeoFenceNode(Node):
                 GPIO.setmode(GPIO.BCM)
                 GPIO.setup(self.buzzer_pin, GPIO.OUT, initial=GPIO.LOW)
                 GPIO.setup(self.red_led, GPIO.OUT, initial=GPIO.LOW)
-                GPIO.setup(self.green_led, GPIO.OUT, initial=GPIO.HIGH)
+                # Do not assert "inside" at startup — wait for first GPS fix
+                GPIO.setup(self.green_led, GPIO.OUT, initial=GPIO.LOW)
                 self._gpio_ready = True
             except Exception as e:
                 self.get_logger().error(f'GPIO init failed: {e}. Running without GPIO.')
