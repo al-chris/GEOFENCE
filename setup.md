@@ -162,30 +162,57 @@ sudo chmod 660 /dev/gpiomem
 
 ## Part 4: Add the ROS 2 Repository & Install
 
+Check your architecture and Ubuntu codename first:
+
 ```bash
-# 1. Ensure you have curl installed
-sudo apt update && sudo apt install -y curl software-properties-common
+dpkg --print-architecture
+. /etc/os-release && echo $UBUNTU_CODENAME
 ```
 
+1. Install prerequisites
+
 ```bash
-# 2. Add the ROS 2 GPG key
-sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+sudo apt update
+sudo apt install -y curl gnupg lsb-release ca-certificates
 ```
 
-> **Note:** This command produces no output on success. To confirm the key was saved, run:
-> ```bash
-> ls /usr/share/keyrings/ros-archive-keyring.gpg
-> ```
+2. Add the ROS 2 GPG key (preferred: use gpg dearmor)
 
 ```bash
-# 3. Add the repository to your sources list
+sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key | sudo gpg --dearmor -o /usr/share/keyrings/ros-archive-keyring.gpg
+```
+
+3. Add the ROS 2 apt repository (this uses your system architecture automatically)
+
+```bash
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+sudo apt update
 ```
 
+4. List available ROS base packages and choose the distro that matches your needs
+
 ```bash
-# 4. Downgrade three libraries to the exact versions ROS 2 expects, then pin them.
-#    Ubuntu security updates bump these past what ROS's -dev packages require,
-#    causing "unmet dependencies" errors without this step.
+apt-cache pkgnames | grep '^ros-.*-ros-base$'
+# example result: ros-jazzy-ros-base
+```
+
+5. Install ROS 2 base and colcon
+
+```bash
+sudo apt install -y ros-jazzy-ros-base python3-colcon-common-extensions
+```
+
+If `python3-colcon-common-extensions` is not available from apt, install via pip:
+
+```bash
+python3 -m pip install --user -U colcon-common-extensions
+```
+
+Optional: Downgrades
+- The previous instructions recommended downgrading `liblz4-1`, `libzstd1`, and `zlib1g`.
+- Only attempt those exact downgrades if `apt` fails with unmet-dependency errors and you understand the risk. Example commands (use only if required):
+
+```bash
 sudo apt install -y --allow-downgrades \
   liblz4-1=1.9.4-1build1 \
   libzstd1=1.5.5+dfsg2-2build1 \
@@ -193,9 +220,14 @@ sudo apt install -y --allow-downgrades \
 sudo apt-mark hold liblz4-1 libzstd1 zlib1g
 ```
 
+After installation, source ROS and verify:
+
 ```bash
-# 5. Install ROS 2 Base (Jazzy) + Colcon
-sudo apt install -y ros-jazzy-ros-base python3-colcon-common-extensions
+source /opt/ros/jazzy/setup.bash
+echo $ROS_DISTRO
+which ros2
+ros2 --help
+python3 -m colcon --help
 ```
 
 ```bash
