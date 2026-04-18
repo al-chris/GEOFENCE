@@ -3,6 +3,7 @@ import yaml
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import NavSatFix
 from geometry_msgs.msg import Twist
 from shapely.geometry import Point, Polygon
@@ -97,16 +98,29 @@ class GeoFenceNode(Node):
 
         # State tracking
         self._last_inside: bool | None = None
+        self._gps_msg_count = 0
 
         # ROS I/O
         self.subscription = self.create_subscription(
-            NavSatFix, '/gps/fix', self.gps_callback, 10
+            NavSatFix, '/gps/fix', self.gps_callback, qos_profile_sensor_data
         )
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self._startup_watchdog = self.create_timer(10.0, self._check_gps_stream)
 
         self.get_logger().info('Virtual Geo-fencing Node started.')
 
+    def _check_gps_stream(self):
+        if self._gps_msg_count == 0:
+            self.get_logger().warning(
+                'No messages received on /gps/fix yet. '
+                'Start a GPS publisher (for hardware, run geofence_launch.py).'
+            )
+        else:
+            # Disable watchdog after first successful reception.
+            self._startup_watchdog.cancel()
+
     def gps_callback(self, msg: NavSatFix):
+        self._gps_msg_count += 1
         # Some drivers may send a status field; skip invalid fixes
         status_ok = True
         if hasattr(msg, 'status') and getattr(msg.status, 'status', 0) < 0:

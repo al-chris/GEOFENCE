@@ -14,6 +14,9 @@ def generate_launch_description():
             executable='nmea_serial_driver',
             name='gps_driver',
             output='screen',
+            remappings=[
+                ('fix', '/gps/fix'),
+            ],
             parameters=[{
                 # Use the system serial port matching your device
                 'port': '/dev/ttyAMA0',
