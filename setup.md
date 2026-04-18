@@ -158,6 +158,28 @@ sudo chown root:gpio /dev/gpiomem
 sudo chmod 660 /dev/gpiomem
 ```
 
+### Make this persistent (recommended)
+
+The device node is recreated at boot; use a udev rule so `/dev/gpiomem` keeps the `gpio` group and correct permissions:
+
+```bash
+sudo tee /etc/udev/rules.d/60-gpiomem.rules > /dev/null <<'EOF'
+KERNEL=="gpiomem", SUBSYSTEM=="misc", GROUP="gpio", MODE="0660"
+EOF
+
+# Reload udev rules and apply immediately
+sudo udevadm control --reload-rules
+sudo udevadm trigger --name-match=gpiomem
+
+# Verify permissions
+ls -l /dev/gpiomem
+
+# Make sure the user running the node is in the gpio group (re-login required)
+sudo usermod -aG gpio $USER
+```
+
+If you run the node via a `systemd` service, add `SupplementaryGroups=gpio` to the `[Service]` section of the unit so the service inherits the group (then `sudo systemctl daemon-reload` and restart the service).
+
 ---
 
 ## Part 4: Add the ROS 2 Repository & Install
@@ -370,3 +392,31 @@ Start the node (no `sudo` required if GPIO permissions are configured):
 ```bash
 ros2 run virtual_geofence geofence_node --ros-args --params-file src/virtual_geofence/config/boundary.yaml
 ```
+
+---
+
+## Part 8: Running as a systemd service (optional)
+
+You can run `geofence_node` as a systemd unit so it starts on boot and is supervised. A template unit is provided in the repository at `systemd/geofence.service` — edit it to replace `youruser` and the workspace paths with your actual username and workspace location on the Pi.
+
+Install and enable the service (run these on the Pi):
+
+```bash
+# copy the unit into place
+sudo cp systemd/geofence.service /etc/systemd/system/geofence.service
+
+# reload systemd and start the service
+sudo systemctl daemon-reload
+sudo systemctl enable --now geofence.service
+
+# check status and logs
+sudo systemctl status geofence.service -l
+sudo journalctl -u geofence.service -f
+```
+
+Important notes:
+- Ensure the `User` and `WorkingDirectory` fields in the unit are correct for your system.
+- The unit already includes `SupplementaryGroups=gpio` so the service process inherits access to `/dev/gpiomem` when the user is in the `gpio` group. If you change the user, make sure that account is a member of `gpio`.
+- If you prefer the service to run under `root` (not recommended), remove `User`/`Group` and drop `SupplementaryGroups=gpio` accordingly.
+
+After enabling the service, verify GPIO access with `ls -l /dev/gpiomem` and that the node logs show the Kalman filter initialising on the first GPS fix.

@@ -1,0 +1,18 @@
+[Unit]
+Description=Virtual Geofence Node
+After=network.target
+
+[Service]
+Type=simple
+
+User=hashirama
+Group=hashirama
+SupplementaryGroups=gpio
+WorkingDirectory=/home/hashirama/ros2_ws
+ExecStart=/bin/bash -lc 'source /opt/ros/jazzy/setup.bash; source /home/hashirama/ros2_ws/install/setup.bash; exec ros2 run virtual_geofence geofence_node --ros-args --params-file /home/hashirama/ros2_ws/src/virtual_geofence/config/boundary.yaml'
+Restart=on-failure
+RestartSec=5
+Environment=RCUTILS_LOGGING_BUFFERED_OUTPUT=1
+
+[Install]
+WantedBy=multi-user.target
