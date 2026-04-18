@@ -90,6 +90,44 @@ The `disable-bt` overlay detaches Bluetooth from the hardware UART and hands `/d
 
 - Bluetooth is fully disabled after applying this overlay.
 
+If, after disabling Bluetooth, you see kernel messages or a login prompt repeatedly appearing on the serial console (many lines of HELP: loglevel... or similar), follow these steps to stop the console from using the serial port and to disable serial getty services:
+
+**Step 1: Edit cmdline.txt:**
+
+```bash
+sudo nano /boot/firmware/cmdline.txt
+```
+
+**From:**
+```
+console=serial0,115200 multipath=off dwc_otg.lpm_enable=0 console=tty1 root=LABEL=writable rootfstype=ext4 rootwait fix>
+```
+
+**To:**
+```
+multipath=off dwc_otg.lpm_enable=0 console=tty1 root=LABEL=writable rootfstype=ext4 rootwait fix>
+```
+
+Use the **Home** key to jump to the start of the line, then delete `console=serial0,115200 ` (include the trailing space). Save with `Ctrl+O` → Enter → `Ctrl+X`.
+
+**Step 2: Disable serial getty services:**
+```bash
+sudo systemctl disable serial-getty@ttyAMA0.service
+sudo systemctl disable serial-getty@ttyS0.service
+```
+
+**Step 3: Reboot:**
+```bash
+sudo reboot
+```
+
+**Step 4: After reboot, verify GPS is working:**
+```bash
+ls -la /dev/ttyAMA0
+sudo cat /dev/ttyAMA0
+```
+You should see clean NMEA sentences like `$GPGGA,...` and `$GPRMC,...` streaming in. Press `Ctrl+C` to stop.
+
 ---
 
 ## Part 3: GPIO Setup & Verification
