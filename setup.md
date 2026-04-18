@@ -390,6 +390,8 @@ Wire the LEDs and buzzer as follows (based on `geofence_node.py`):
 Start the node (no `sudo` required if GPIO permissions are configured):
 
 ```bash
+sudo chown root:gpio /dev/gpiomem
+sudo chmod 660 /dev/gpiomem
 ros2 run virtual_geofence geofence_node --ros-args --params-file src/virtual_geofence/config/boundary.yaml
 ```
 
