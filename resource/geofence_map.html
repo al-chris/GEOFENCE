@@ -5,60 +5,869 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Geofence Map</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"/>
   <style>
-    html,body,#map{height:100%;margin:0;padding:0}
-    #info{position:absolute;right:10px;top:10px;background:#fff;padding:8px;border-radius:6px;box-shadow:0 1px 6px rgba(0,0,0,0.2);z-index:1000;font-family:Arial,Helvetica,sans-serif;font-size:13px}
+    :root {
+      --panel-bg: #ffffff;
+      --panel-border: #d8dce3;
+      --text: #1e2a33;
+      --muted: #5d6a73;
+      --accent: #0f766e;
+      --danger: #b91c1c;
+      --warn: #b45309;
+      --shadow: 0 6px 18px rgba(0, 0, 0, 0.15);
+    }
+    html, body, #map { height: 100%; margin: 0; padding: 0; }
+    body { font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; color: var(--text); }
+    #controls {
+      position: absolute;
+      left: 12px;
+      top: 12px;
+      z-index: 1000;
+      width: min(360px, calc(100vw - 24px));
+      max-height: calc(100vh - 24px);
+      overflow: auto;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      padding: 12px;
+      box-sizing: border-box;
+    }
+    #controls h2 {
+      margin: 0 0 8px 0;
+      font-size: 15px;
+      letter-spacing: 0.2px;
+    }
+    .muted { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+    .mode-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .mode-btn,
+    .action-btn {
+      border: 1px solid var(--panel-border);
+      background: #f8fafc;
+      color: var(--text);
+      padding: 7px 9px;
+      font-size: 12px;
+      border-radius: 7px;
+      cursor: pointer;
+    }
+    .mode-btn.active {
+      border-color: var(--accent);
+      background: #e6fffb;
+      color: #0f4f49;
+      font-weight: 600;
+    }
+    .section {
+      border-top: 1px solid #edf0f4;
+      padding-top: 10px;
+      margin-top: 10px;
+    }
+    .section.hidden { display: none; }
+    .label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      display: block;
+    }
+    textarea,
+    input,
+    select {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #cfd8e3;
+      border-radius: 7px;
+      padding: 7px 8px;
+      font-size: 12px;
+      margin-bottom: 7px;
+      background: #fff;
+    }
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .action-btn.primary { background: #0f766e; color: #fff; border-color: #0f766e; }
+    .action-btn.warn { background: #fffbeb; color: #7c2d12; border-color: #fed7aa; }
+    .action-btn.danger { background: #fef2f2; color: var(--danger); border-color: #fecaca; }
+    .status {
+      font-size: 12px;
+      border-radius: 7px;
+      padding: 6px 8px;
+      margin-top: 8px;
+      background: #f3f4f6;
+      color: #111827;
+      border: 1px solid #e5e7eb;
+    }
+    .status.error { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+    .status.warn { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+    #output {
+      width: 100%;
+      min-height: 80px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      resize: vertical;
+    }
+    #info {
+      position: absolute;
+      right: 12px;
+      top: 12px;
+      max-width: min(320px, calc(100vw - 24px));
+      background: #ffffff;
+      padding: 9px 10px;
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      z-index: 1000;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    @media (max-width: 900px) {
+      #controls {
+        width: calc(100vw - 16px);
+        left: 8px;
+        top: 8px;
+        max-height: 52vh;
+      }
+      #info {
+        left: 8px;
+        right: 8px;
+        top: auto;
+        bottom: 8px;
+        max-width: none;
+      }
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
+  <div id="controls">
+    <h2>Geofence Boundary Builder</h2>
+    <div class="muted">Modes: manual polygon, manual circle, draw boundary, and click-point polygon.</div>
+
+    <div class="mode-grid">
+      <button class="mode-btn active" data-mode="manual-polygon" id="modeManualPolygon">Manual Polygon</button>
+      <button class="mode-btn" data-mode="manual-circle" id="modeManualCircle">Manual Circle</button>
+      <button class="mode-btn" data-mode="draw" id="modeDraw">Draw Boundary</button>
+      <button class="mode-btn" data-mode="point-polygon" id="modePointPolygon">Point Polygon</button>
+    </div>
+
+    <div class="section" id="sectionManualPolygon">
+      <label class="label" for="polygonInput">Polygon input: one pair per line as "lat, lon" or JSON array.</label>
+      <textarea id="polygonInput" rows="6" placeholder="7.5180, 4.5160\n7.5190, 4.5160\n7.5190, 4.5170\n7.5180, 4.5170"></textarea>
+      <div class="actions">
+        <button class="action-btn primary" id="applyPolygon">Apply Polygon</button>
+        <button class="action-btn warn" id="undoPoint">Undo Last Point</button>
+      </div>
+    </div>
+
+    <div class="section hidden" id="sectionManualCircle">
+      <label class="label" for="circleLat">Center latitude</label>
+      <input id="circleLat" type="number" step="any" placeholder="7.5185" />
+      <label class="label" for="circleLon">Center longitude</label>
+      <input id="circleLon" type="number" step="any" placeholder="4.5168" />
+      <label class="label" for="circleRadius">Radius (meters)</label>
+      <input id="circleRadius" type="number" step="any" min="0" placeholder="50" />
+      <div class="actions">
+        <button class="action-btn primary" id="applyCircle">Apply Circle</button>
+        <button class="action-btn warn" id="focusCircle">Focus Circle</button>
+      </div>
+    </div>
+
+    <div class="section hidden" id="sectionDraw">
+      <div class="muted">Use draw controls on map (top-left) to create or edit one polygon or one circle.</div>
+      <div class="actions">
+        <button class="action-btn" id="enableEdit">Enable Edit</button>
+        <button class="action-btn danger" id="deleteActive">Delete Active</button>
+      </div>
+    </div>
+
+    <div class="section hidden" id="sectionPointPolygon">
+      <div class="muted">Click on the map to add polygon points. Finish when you have at least 3 points.</div>
+      <div class="actions">
+        <button class="action-btn primary" id="finishPointPolygon">Finish Polygon</button>
+        <button class="action-btn warn" id="cancelPointPolygon">Cancel Point Mode</button>
+      </div>
+      <div class="label" id="pointCounter">Points selected: 0</div>
+    </div>
+
+    <div class="section">
+      <label class="label" for="exportFormat">Export format</label>
+      <select id="exportFormat">
+        <option value="flat">Flat array [lat, lon, ...]</option>
+        <option value="json">JSON object</option>
+        <option value="yaml">YAML snippet</option>
+      </select>
+      <div class="actions">
+        <button class="action-btn primary" id="exportBtn">Export</button>
+        <button class="action-btn" id="copyBtn">Copy Output</button>
+        <button class="action-btn danger" id="clearBtn">Clear All</button>
+        <button class="action-btn" id="fitBtn">Fit To Boundary</button>
+      </div>
+      <label class="label" for="output">Output</label>
+      <textarea id="output" readonly></textarea>
+      <div class="muted">Compatibility: backend geofence uses polygon flat arrays in boundary.yaml. Circle export is center/radius data.</div>
+      <div class="status" id="status">Ready.</div>
+    </div>
+  </div>
   <div id="info">Loading...</div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
   <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
   <script>
-    // Boundary coordinates (lat, lon)
-    const boundaryCoords = [
+    const defaultBoundaryCoords = [
       [7.5180, 4.5160],
       [7.5190, 4.5160],
       [7.5190, 4.5170],
       [7.5180, 4.5170]
     ];
 
-    // Circle center & radius (can be adjusted)
-    const center = [7.5185, 4.5168];
-    const radius_m = 50;
+    const defaultCenter = [7.5185, 4.5168];
+    const defaultRadiusM = 50;
 
-    const map = L.map('map').setView(center, 18);
+    const map = L.map('map').setView(defaultCenter, 18);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 22,
       attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
-    const poly = L.polygon(boundaryCoords, {color:'red', fillColor:'orange', fillOpacity:0.3}).addTo(map);
-    const circ = L.circle(center, {radius: radius_m, color:'blue', fill:false}).addTo(map);
-    const marker = L.marker(center).addTo(map).bindPopup('Fence center');
+    const state = {
+      mode: 'manual-polygon',
+      polygonLayer: null,
+      circleLayer: null,
+      centerMarker: null,
+      activeBoundaryType: 'polygon',
+      drawControl: null,
+      drawControlOnMap: false,
+      drawnItems: L.featureGroup().addTo(map),
+      pointMarkers: [],
+      pointPreviewLine: null,
+      pointPreviewPoly: null,
+      pointCoords: [],
+      pointModeActive: false,
+      editEnabled: false
+    };
 
-    map.fitBounds(poly.getBounds().pad(1.2));
+    const ui = {
+      modeButtons: document.querySelectorAll('.mode-btn'),
+      sections: {
+        manualPolygon: document.getElementById('sectionManualPolygon'),
+        manualCircle: document.getElementById('sectionManualCircle'),
+        draw: document.getElementById('sectionDraw'),
+        pointPolygon: document.getElementById('sectionPointPolygon')
+      },
+      polygonInput: document.getElementById('polygonInput'),
+      circleLat: document.getElementById('circleLat'),
+      circleLon: document.getElementById('circleLon'),
+      circleRadius: document.getElementById('circleRadius'),
+      exportFormat: document.getElementById('exportFormat'),
+      output: document.getElementById('output'),
+      status: document.getElementById('status'),
+      pointCounter: document.getElementById('pointCounter'),
+      enableEditBtn: document.getElementById('enableEdit')
+    };
 
-    function updateInfo(){
-      // turf uses [lon, lat]
-      const polyGeo = turf.polygon([boundaryCoords.map(c=>[c[1], c[0]])]);
-      const polyArea = turf.area(polyGeo); // m^2
-      const circleGeo = turf.circle([center[1], center[0]], radius_m, {steps:64, units:'meters'});
-      const intersects = turf.booleanIntersects(polyGeo, circleGeo);
-      let interArea = 0;
-      if (intersects){
-        const inter = turf.intersect(polyGeo, circleGeo);
-        if (inter) interArea = turf.area(inter);
+    function setStatus(message, level) {
+      ui.status.textContent = message;
+      ui.status.classList.remove('error', 'warn');
+      if (level === 'error') {
+        ui.status.classList.add('error');
+      } else if (level === 'warn') {
+        ui.status.classList.add('warn');
       }
-      document.getElementById('info').innerHTML =
-        `<b>Boundary area:</b> ${polyArea.toFixed(2)} m²<br>` +
-        `<b>Circle radius:</b> ${radius_m} m<br>` +
-        `<b>Intersects:</b> ${intersects ? 'Yes' : 'No'}<br>` +
-        (intersects ? `<b>Intersection area:</b> ${interArea.toFixed(2)} m²` : '');
     }
+
+    function isValidLatLon(lat, lon) {
+      return Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+    }
+
+    function validatePolygonCoords(coords) {
+      if (!Array.isArray(coords) || coords.length < 3) {
+        return 'Polygon requires at least 3 points.';
+      }
+      for (let i = 0; i < coords.length; i += 1) {
+        const pair = coords[i];
+        if (!Array.isArray(pair) || pair.length !== 2) {
+          return `Point ${i + 1} is invalid. Use [lat, lon].`;
+        }
+        const lat = Number(pair[0]);
+        const lon = Number(pair[1]);
+        if (!isValidLatLon(lat, lon)) {
+          return `Point ${i + 1} is out of range. Latitude [-90,90], longitude [-180,180].`;
+        }
+      }
+      return null;
+    }
+
+    function flattenPolygon(coords) {
+      return coords.flatMap((pair) => [Number(pair[0]), Number(pair[1])]);
+    }
+
+    function pairFromFlat(flat) {
+      const coords = [];
+      for (let i = 0; i < flat.length; i += 2) {
+        coords.push([Number(flat[i]), Number(flat[i + 1])]);
+      }
+      return coords;
+    }
+
+    function parsePolygonInput(text) {
+      const raw = text.trim();
+      if (!raw) {
+        throw new Error('Polygon input is empty.');
+      }
+
+      if (raw.startsWith('[')) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0 && Array.isArray(parsed[0])) {
+          return parsed.map((pair) => [Number(pair[0]), Number(pair[1])]);
+        }
+        if (Array.isArray(parsed) && parsed.length > 0 && !Array.isArray(parsed[0])) {
+          if (parsed.length % 2 !== 0) {
+            throw new Error('Flat array JSON must have even length [lat, lon, ...].');
+          }
+          return pairFromFlat(parsed);
+        }
+        throw new Error('Unsupported JSON format. Use [[lat, lon], ...] or [lat, lon, ...].');
+      }
+
+      const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      const coords = lines.map((line, idx) => {
+        const tokens = line.split(/[\s,]+/).filter(Boolean);
+        if (tokens.length !== 2) {
+          throw new Error(`Line ${idx + 1}: expected "lat, lon".`);
+        }
+        return [Number(tokens[0]), Number(tokens[1])];
+      });
+      return coords;
+    }
+
+    function removePolygon() {
+      if (state.polygonLayer) {
+        state.drawnItems.removeLayer(state.polygonLayer);
+        if (map.hasLayer(state.polygonLayer)) {
+          map.removeLayer(state.polygonLayer);
+        }
+        state.polygonLayer = null;
+      }
+    }
+
+    function removeCircle() {
+      if (state.circleLayer) {
+        state.drawnItems.removeLayer(state.circleLayer);
+        if (map.hasLayer(state.circleLayer)) {
+          map.removeLayer(state.circleLayer);
+        }
+        state.circleLayer = null;
+      }
+      if (state.centerMarker) {
+        map.removeLayer(state.centerMarker);
+        state.centerMarker = null;
+      }
+    }
+
+    function renderPolygon(coords, fitBounds) {
+      const error = validatePolygonCoords(coords);
+      if (error) {
+        throw new Error(error);
+      }
+      removePolygon();
+      removeCircle();
+      state.polygonLayer = L.polygon(coords, {
+        color: '#dc2626',
+        fillColor: '#fb923c',
+        fillOpacity: 0.24,
+        weight: 2
+      }).addTo(map);
+      state.drawnItems.addLayer(state.polygonLayer);
+      state.activeBoundaryType = 'polygon';
+      if (fitBounds) {
+        map.fitBounds(state.polygonLayer.getBounds().pad(0.35));
+      }
+      updateInfo();
+    }
+
+    function renderCircle(center, radiusM, fitBounds) {
+      const lat = Number(center[0]);
+      const lon = Number(center[1]);
+      const radius = Number(radiusM);
+      if (!isValidLatLon(lat, lon)) {
+        throw new Error('Circle center is out of range.');
+      }
+      if (!Number.isFinite(radius) || radius <= 0) {
+        throw new Error('Radius must be a positive number.');
+      }
+      removePolygon();
+      removeCircle();
+      state.circleLayer = L.circle([lat, lon], {
+        radius,
+        color: '#0369a1',
+        fillColor: '#38bdf8',
+        fillOpacity: 0.18,
+        weight: 2
+      }).addTo(map);
+      state.centerMarker = L.marker([lat, lon]).addTo(map).bindPopup('Circle center');
+      state.drawnItems.addLayer(state.circleLayer);
+      state.activeBoundaryType = 'circle';
+      if (fitBounds) {
+        map.fitBounds(state.circleLayer.getBounds().pad(0.35));
+      }
+      updateInfo();
+    }
+
+    function getPolygonCoords() {
+      if (!state.polygonLayer) {
+        return null;
+      }
+      return state.polygonLayer.getLatLngs()[0].map((p) => [Number(p.lat), Number(p.lng)]);
+    }
+
+    function getCircleData() {
+      if (!state.circleLayer) {
+        return null;
+      }
+      const center = state.circleLayer.getLatLng();
+      return {
+        center_lat: Number(center.lat),
+        center_lon: Number(center.lng),
+        radius_m: Number(state.circleLayer.getRadius())
+      };
+    }
+
+    function formatExport() {
+      const format = ui.exportFormat.value;
+      if (state.activeBoundaryType === 'polygon') {
+        const coords = getPolygonCoords();
+        if (!coords) {
+          throw new Error('No polygon boundary available to export.');
+        }
+        const flat = flattenPolygon(coords);
+        if (format === 'flat') {
+          return JSON.stringify(flat);
+        }
+        if (format === 'json') {
+          return JSON.stringify({ boundary_coords: flat }, null, 2);
+        }
+        return `boundary_coords:\n${flat.map((v) => `  - ${v}`).join('\n')}`;
+      }
+
+      const circle = getCircleData();
+      if (!circle) {
+        throw new Error('No circle boundary available to export.');
+      }
+      if (format === 'flat') {
+        return JSON.stringify(circle);
+      }
+      if (format === 'json') {
+        return JSON.stringify(circle, null, 2);
+      }
+      return `center_lat: ${circle.center_lat}\ncenter_lon: ${circle.center_lon}\nradius_m: ${circle.radius_m}`;
+    }
+
+    function updateInfo() {
+      const polygonCoords = getPolygonCoords();
+      const circleData = getCircleData();
+
+      let html = '<b>Boundary type:</b> ' + (state.activeBoundaryType === 'polygon' ? 'Polygon' : 'Circle') + '<br>';
+      let areaLine = '<b>Boundary area:</b> N/A<br>';
+      let circleLine = '<b>Circle radius:</b> N/A<br>';
+      let intersectsLine = '<b>Intersects:</b> N/A<br>';
+      let intersectionAreaLine = '';
+
+      if (polygonCoords) {
+        const polyGeo = turf.polygon([polygonCoords.map((c) => [c[1], c[0]])]);
+        areaLine = `<b>Boundary area:</b> ${turf.area(polyGeo).toFixed(2)} m²<br>`;
+      }
+
+      if (circleData) {
+        circleLine = `<b>Circle radius:</b> ${circleData.radius_m.toFixed(2)} m<br>`;
+      }
+
+      if (polygonCoords && circleData) {
+        const polyGeo = turf.polygon([polygonCoords.map((c) => [c[1], c[0]])]);
+        const circleGeo = turf.circle([circleData.center_lon, circleData.center_lat], circleData.radius_m, {
+          steps: 64,
+          units: 'meters'
+        });
+        const intersects = turf.booleanIntersects(polyGeo, circleGeo);
+        intersectsLine = `<b>Intersects:</b> ${intersects ? 'Yes' : 'No'}<br>`;
+        if (intersects) {
+          const inter = turf.intersect(polyGeo, circleGeo);
+          const area = inter ? turf.area(inter) : 0;
+          intersectionAreaLine = `<b>Intersection area:</b> ${area.toFixed(2)} m²`;
+        }
+      }
+
+      document.getElementById('info').innerHTML = html + areaLine + circleLine + intersectsLine + intersectionAreaLine;
+    }
+
+    function clearPointModeLayers() {
+      state.pointCoords = [];
+      state.pointMarkers.forEach((m) => map.removeLayer(m));
+      state.pointMarkers = [];
+      if (state.pointPreviewLine) {
+        map.removeLayer(state.pointPreviewLine);
+        state.pointPreviewLine = null;
+      }
+      if (state.pointPreviewPoly) {
+        map.removeLayer(state.pointPreviewPoly);
+        state.pointPreviewPoly = null;
+      }
+      ui.pointCounter.textContent = 'Points selected: 0';
+    }
+
+    function refreshPointPreview() {
+      if (state.pointPreviewLine) {
+        map.removeLayer(state.pointPreviewLine);
+        state.pointPreviewLine = null;
+      }
+      if (state.pointPreviewPoly) {
+        map.removeLayer(state.pointPreviewPoly);
+        state.pointPreviewPoly = null;
+      }
+      if (state.pointCoords.length >= 2) {
+        state.pointPreviewLine = L.polyline(state.pointCoords, {
+          color: '#0f766e',
+          weight: 2,
+          dashArray: '6,4'
+        }).addTo(map);
+      }
+      if (state.pointCoords.length >= 3) {
+        state.pointPreviewPoly = L.polygon(state.pointCoords, {
+          color: '#0f766e',
+          fillColor: '#6ee7b7',
+          fillOpacity: 0.15,
+          dashArray: '4,4'
+        }).addTo(map);
+      }
+      ui.pointCounter.textContent = `Points selected: ${state.pointCoords.length}`;
+    }
+
+    function onPointModeMapClick(e) {
+      if (!state.pointModeActive) {
+        return;
+      }
+      const lat = Number(e.latlng.lat.toFixed(8));
+      const lon = Number(e.latlng.lng.toFixed(8));
+      state.pointCoords.push([lat, lon]);
+      const marker = L.circleMarker([lat, lon], {
+        radius: 5,
+        color: '#0f766e',
+        fillColor: '#14b8a6',
+        fillOpacity: 1
+      }).addTo(map);
+      state.pointMarkers.push(marker);
+      refreshPointPreview();
+      setStatus(`Point ${state.pointCoords.length} added.`, null);
+    }
+
+    function startPointMode() {
+      state.pointModeActive = true;
+      clearPointModeLayers();
+      map.on('click', onPointModeMapClick);
+      setStatus('Point selection active. Click map to add polygon vertices.', null);
+    }
+
+    function stopPointMode() {
+      state.pointModeActive = false;
+      map.off('click', onPointModeMapClick);
+      clearPointModeLayers();
+    }
+
+    function ensureDrawControl() {
+      if (!state.drawControl) {
+        state.drawControl = new L.Control.Draw({
+          position: 'topleft',
+          draw: {
+            polygon: {
+              allowIntersection: false,
+              showArea: true,
+              shapeOptions: { color: '#dc2626', fillColor: '#fb923c', fillOpacity: 0.24, weight: 2 }
+            },
+            circle: {
+              shapeOptions: { color: '#0369a1', fillColor: '#38bdf8', fillOpacity: 0.18, weight: 2 }
+            },
+            marker: false,
+            polyline: false,
+            rectangle: false,
+            circlemarker: false
+          },
+          edit: {
+            featureGroup: state.drawnItems,
+            edit: true,
+            remove: true
+          }
+        });
+      }
+      if (!state.drawControlOnMap) {
+        map.addControl(state.drawControl);
+        state.drawControlOnMap = true;
+      }
+    }
+
+    function removeDrawControl() {
+      if (state.drawControl && state.drawControlOnMap) {
+        map.removeControl(state.drawControl);
+        state.drawControlOnMap = false;
+      }
+      if (state.editEnabled) {
+        state.editEnabled = false;
+        ui.enableEditBtn.textContent = 'Enable Edit';
+      }
+    }
+
+    function setMode(mode) {
+      state.mode = mode;
+      ui.modeButtons.forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+      });
+
+      ui.sections.manualPolygon.classList.toggle('hidden', mode !== 'manual-polygon');
+      ui.sections.manualCircle.classList.toggle('hidden', mode !== 'manual-circle');
+      ui.sections.draw.classList.toggle('hidden', mode !== 'draw');
+      ui.sections.pointPolygon.classList.toggle('hidden', mode !== 'point-polygon');
+
+      if (mode === 'draw') {
+        stopPointMode();
+        ensureDrawControl();
+        setStatus('Draw mode enabled. Use map draw controls to create/edit boundary.', null);
+      } else if (mode === 'point-polygon') {
+        removeDrawControl();
+        startPointMode();
+      } else {
+        stopPointMode();
+        removeDrawControl();
+      }
+    }
+
+    function fitToBoundary() {
+      if (state.polygonLayer) {
+        map.fitBounds(state.polygonLayer.getBounds().pad(0.35));
+        return;
+      }
+      if (state.circleLayer) {
+        map.fitBounds(state.circleLayer.getBounds().pad(0.35));
+        return;
+      }
+      setStatus('No boundary to fit. Create a polygon or circle first.', 'warn');
+    }
+
+    function clearAllBoundaries() {
+      removePolygon();
+      removeCircle();
+      stopPointMode();
+      state.activeBoundaryType = 'polygon';
+      ui.output.value = '';
+      setStatus('All boundaries cleared.', null);
+      updateInfo();
+    }
+
+    ui.modeButtons.forEach((btn) => {
+      btn.addEventListener('click', () => setMode(btn.dataset.mode));
+    });
+
+    document.getElementById('applyPolygon').addEventListener('click', () => {
+      try {
+        const coords = parsePolygonInput(ui.polygonInput.value);
+        const validationError = validatePolygonCoords(coords);
+        if (validationError) {
+          throw new Error(validationError);
+        }
+        renderPolygon(coords, true);
+        setStatus('Polygon applied successfully.', null);
+      } catch (error) {
+        setStatus(error.message, 'error');
+      }
+    });
+
+    document.getElementById('applyCircle').addEventListener('click', () => {
+      try {
+        const lat = Number(ui.circleLat.value);
+        const lon = Number(ui.circleLon.value);
+        const radius = Number(ui.circleRadius.value);
+        renderCircle([lat, lon], radius, true);
+        setStatus('Circle applied successfully.', null);
+      } catch (error) {
+        setStatus(error.message, 'error');
+      }
+    });
+
+    document.getElementById('focusCircle').addEventListener('click', () => {
+      if (!state.circleLayer) {
+        setStatus('No circle exists yet.', 'warn');
+        return;
+      }
+      map.fitBounds(state.circleLayer.getBounds().pad(0.35));
+    });
+
+    document.getElementById('undoPoint').addEventListener('click', () => {
+      if (state.mode === 'point-polygon') {
+        if (state.pointCoords.length === 0) {
+          setStatus('No points to undo.', 'warn');
+          return;
+        }
+        state.pointCoords.pop();
+        const marker = state.pointMarkers.pop();
+        if (marker) {
+          map.removeLayer(marker);
+        }
+        refreshPointPreview();
+        setStatus('Last point removed.', null);
+        return;
+      }
+
+      if (state.mode === 'manual-polygon') {
+        const lines = ui.polygonInput.value.split(/\r?\n/);
+        if (lines.length <= 1) {
+          ui.polygonInput.value = '';
+          setStatus('Polygon input cleared.', null);
+          return;
+        }
+        lines.pop();
+        ui.polygonInput.value = lines.join('\n');
+        setStatus('Removed last input line.', null);
+      }
+    });
+
+    document.getElementById('finishPointPolygon').addEventListener('click', () => {
+      if (state.pointCoords.length < 3) {
+        setStatus('At least 3 points are required to create a polygon.', 'error');
+        return;
+      }
+      try {
+        renderPolygon(state.pointCoords, true);
+        stopPointMode();
+        setStatus('Point-selected polygon created.', null);
+      } catch (error) {
+        setStatus(error.message, 'error');
+      }
+    });
+
+    document.getElementById('cancelPointPolygon').addEventListener('click', () => {
+      if (state.mode === 'point-polygon') {
+        clearPointModeLayers();
+        setStatus('Point mode reset. You can start selecting again.', null);
+      }
+    });
+
+    document.getElementById('enableEdit').addEventListener('click', () => {
+      if (!state.drawControlOnMap) {
+        setStatus('Switch to Draw Boundary mode to edit boundaries.', 'warn');
+        return;
+      }
+      state.editEnabled = !state.editEnabled;
+      ui.enableEditBtn.textContent = state.editEnabled ? 'Edit Enabled (Use Draw Toolbar)' : 'Enable Edit';
+      setStatus(
+        state.editEnabled ? 'Edit is enabled. Use the map edit toolbar to adjust vertices.' : 'Edit hint disabled.',
+        null
+      );
+    });
+
+    document.getElementById('deleteActive').addEventListener('click', () => {
+      if (state.activeBoundaryType === 'polygon' && state.polygonLayer) {
+        removePolygon();
+        setStatus('Active polygon deleted.', null);
+      } else if (state.activeBoundaryType === 'circle' && state.circleLayer) {
+        removeCircle();
+        setStatus('Active circle deleted.', null);
+      } else {
+        setStatus('No active boundary to delete.', 'warn');
+      }
+      updateInfo();
+    });
+
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      try {
+        const output = formatExport();
+        ui.output.value = output;
+        setStatus('Boundary exported.', null);
+      } catch (error) {
+        setStatus(error.message, 'error');
+      }
+    });
+
+    document.getElementById('copyBtn').addEventListener('click', async () => {
+      try {
+        if (!ui.output.value.trim()) {
+          throw new Error('No output to copy. Export first.');
+        }
+        await navigator.clipboard.writeText(ui.output.value);
+        setStatus('Output copied to clipboard.', null);
+      } catch (error) {
+        setStatus(error.message, 'error');
+      }
+    });
+
+    document.getElementById('clearBtn').addEventListener('click', clearAllBoundaries);
+    document.getElementById('fitBtn').addEventListener('click', fitToBoundary);
+
+    map.on(L.Draw.Event.CREATED, (event) => {
+      const layer = event.layer;
+      try {
+        if (event.layerType === 'polygon') {
+          const coords = layer.getLatLngs()[0].map((p) => [Number(p.lat), Number(p.lng)]);
+          renderPolygon(coords, false);
+          setStatus('Polygon drawn successfully.', null);
+        } else if (event.layerType === 'circle') {
+          const center = layer.getLatLng();
+          renderCircle([center.lat, center.lng], layer.getRadius(), false);
+          setStatus('Circle drawn successfully.', null);
+        }
+        fitToBoundary();
+      } catch (error) {
+        setStatus(error.message, 'error');
+      }
+    });
+
+    map.on(L.Draw.Event.EDITED, (event) => {
+      event.layers.eachLayer((layer) => {
+        if (layer instanceof L.Circle) {
+          state.circleLayer = layer;
+          state.activeBoundaryType = 'circle';
+          const c = layer.getLatLng();
+          if (state.centerMarker) {
+            state.centerMarker.setLatLng(c);
+          } else {
+            state.centerMarker = L.marker(c).addTo(map).bindPopup('Circle center');
+          }
+          setStatus('Circle edited.', null);
+        } else if (layer instanceof L.Polygon) {
+          state.polygonLayer = layer;
+          state.activeBoundaryType = 'polygon';
+          setStatus('Polygon edited.', null);
+        }
+      });
+      updateInfo();
+    });
+
+    map.on(L.Draw.Event.DELETED, () => {
+      const hasPolygon = state.polygonLayer && map.hasLayer(state.polygonLayer);
+      const hasCircle = state.circleLayer && map.hasLayer(state.circleLayer);
+      if (!hasPolygon) {
+        removePolygon();
+      }
+      if (!hasCircle) {
+        removeCircle();
+      }
+      updateInfo();
+      setStatus('Boundary deleted via draw controls.', null);
+    });
+
+    ui.polygonInput.value = defaultBoundaryCoords.map((pair) => `${pair[0]}, ${pair[1]}`).join('\n');
+    ui.circleLat.value = String(defaultCenter[0]);
+    ui.circleLon.value = String(defaultCenter[1]);
+    ui.circleRadius.value = String(defaultRadiusM);
+
+    renderPolygon(defaultBoundaryCoords, true);
     updateInfo();
+    setMode('manual-polygon');
+    setStatus('Loaded default polygon. Choose a mode to start editing.', null);
   </script>
 </body>
 </html>
