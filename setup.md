@@ -294,6 +294,28 @@ echo "source ~/ros2_ws/install/setup.bash" >> ~/.bashrc
 source ~/.bashrc
 ```
 
+### Editing `boundary.yaml`: rebuild vs no-rebuild workflows
+
+By default, `ros2 launch virtual_geofence geofence_launch.py` loads the installed params file from `install/.../share/virtual_geofence/config/boundary.yaml`.
+So if you edit `src/virtual_geofence/config/boundary.yaml`, rebuild so the installed copy is updated:
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select virtual_geofence
+source install/setup.bash
+```
+
+To avoid rebuilding for boundary-only edits, override the launch param file to point directly at the source YAML:
+
+```bash
+cd ~/ros2_ws
+source install/setup.bash
+ros2 launch virtual_geofence geofence_launch.py params_file:=src/virtual_geofence/config/boundary.yaml
+```
+
+> Note: In this project, prefer the `params_file:=...` launch argument above.
+> Using `--ros-args --params-file ...` directly with `ros2 launch` is not the recommended path for this multi-node launch file.
+
 ---
 
 ## Part 7: Run the Code (Testing Mode)
