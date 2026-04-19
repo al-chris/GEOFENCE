@@ -127,6 +127,9 @@
       font-size: 13px;
       line-height: 1.4;
     }
+    .leaflet-top.leaflet-right .leaflet-draw {
+      margin-top: 118px;
+    }
     @media (max-width: 900px) {
       #controls {
         width: calc(100vw - 16px);
@@ -480,8 +483,21 @@
       let intersectsLine = '<b>Intersects:</b> N/A<br>';
       let intersectionAreaLine = '';
 
+      function toClosedTurfRing(coordsLatLon) {
+        const ring = coordsLatLon.map((c) => [c[1], c[0]]);
+        if (ring.length === 0) {
+          return ring;
+        }
+        const first = ring[0];
+        const last = ring[ring.length - 1];
+        if (first[0] !== last[0] || first[1] !== last[1]) {
+          ring.push([first[0], first[1]]);
+        }
+        return ring;
+      }
+
       if (polygonCoords) {
-        const polyGeo = turf.polygon([polygonCoords.map((c) => [c[1], c[0]])]);
+        const polyGeo = turf.polygon([toClosedTurfRing(polygonCoords)]);
         areaLine = `<b>Boundary area:</b> ${turf.area(polyGeo).toFixed(2)} m²<br>`;
       }
 
@@ -490,7 +506,7 @@
       }
 
       if (polygonCoords && circleData) {
-        const polyGeo = turf.polygon([polygonCoords.map((c) => [c[1], c[0]])]);
+        const polyGeo = turf.polygon([toClosedTurfRing(polygonCoords)]);
         const circleGeo = turf.circle([circleData.center_lon, circleData.center_lat], circleData.radius_m, {
           steps: 64,
           units: 'meters'
@@ -583,7 +599,7 @@
     function ensureDrawControl() {
       if (!state.drawControl) {
         state.drawControl = new L.Control.Draw({
-          position: 'topleft',
+          position: 'topright',
           draw: {
             polygon: {
               allowIntersection: false,
