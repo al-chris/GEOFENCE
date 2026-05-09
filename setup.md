@@ -473,9 +473,13 @@ If you are on a PC, you should install the `desktop` version of ROS2 to get Gaze
 sudo apt update && sudo apt install ros-jazzy-desktop ros-jazzy-ros-gz -y
 ```
 
-### 2. Install Project Dependencies
+### 2. Configure Python Environment (uv)
+We use `uv` for local dependency management. It must be configured to see the system ROS2 packages.
 ```bash
-sudo apt install python3-shapely python3-numpy python3-filterpy -y
+# In the project root (GEOFENCE)
+rm -rf .venv
+uv venv --system-site-packages
+uv sync
 ```
 
 ### 3. Enable GPU Acceleration (WSL2)
