@@ -60,9 +60,10 @@ def generate_launch_description():
             'name': 'lawnmower',
             'topic': '/robot_description',
             'world': 'agri_robotics_field',
-            'x': 0.0,
-            'y': -22.0,
-            'z': 0.12,
+            'x': -7.0,
+            'y': -7.0,
+            'z': 0.005,
+            'Y': 0.785,
         }],
         output='screen',
     )
