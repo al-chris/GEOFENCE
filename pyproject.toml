@@ -1,7 +1,7 @@
 [project]
-name = "virtual-geofence"
+name = "virtual-geofence-ws"
 version = "0.1.0"
-description = "Virtual geo-fencing for autonomous lawn mower"
+description = "Workspace for Virtual Geo-fencing"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

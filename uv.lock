@@ -603,7 +603,7 @@ wheels = [
 ]
 
 [[package]]
-name = "virtual-geofence"
+name = "virtual-geofence-ws"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

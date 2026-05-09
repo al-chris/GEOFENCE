@@ -40,7 +40,7 @@ def generate_launch_description():
             PathJoinSubstitution([
                 FindPackageShare(pkg_name),
                 'urdf',
-                'agribot.urdf.xacro',
+                'lawnmower.urdf.xacro',
             ]),
         ]),
         value_type=str
@@ -57,12 +57,12 @@ def generate_launch_description():
         package='ros_gz_sim',
         executable='create',
         parameters=[{
-            'name': 'agribot',
+            'name': 'lawnmower',
             'topic': '/robot_description',
             'world': 'agri_robotics_field',
             'x': 0.0,
             'y': -22.0,
-            'z': 0.3,
+            'z': 0.12,
         }],
         output='screen',
     )
@@ -77,14 +77,16 @@ def generate_launch_description():
             '/tf@tf2_msgs/msg/TFMessage@gz.msgs.Pose_V',
             '/joint_states@sensor_msgs/msg/JointState@gz.msgs.Model',
             '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
-            '/camera/nadir@sensor_msgs/msg/Image[gz.msgs.Image',
-            '/camera/nadir/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
             '/imu/data_raw@sensor_msgs/msg/Imu[gz.msgs.IMU',
             '/gps/fix@sensor_msgs/msg/NavSatFix[gz.msgs.NavSat',
-        ],
-        remappings=[
-            ('/camera/nadir', '/camera/image_raw'),
-            ('/camera/nadir/camera_info', '/camera/camera_info'),
+            '/lidar/points@sensor_msgs/msg/PointCloud2[gz.msgs.PointCloudPacked',
+            '/camera/depth@sensor_msgs/msg/Image[gz.msgs.Image',
+            '/camera/depth/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
+            '/camera/nadir@sensor_msgs/msg/Image[gz.msgs.Image',
+            '/camera/nadir/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
+            '/deck/blade/cmd_vel@std_msgs/msg/Float64]gz.msgs.Double',
+            '/deck/turret/cmd_pos@std_msgs/msg/Float64]gz.msgs.Double',
+            '/deck/pitch/cmd_pos@std_msgs/msg/Float64]gz.msgs.Double',
         ],
         output='screen',
     )
