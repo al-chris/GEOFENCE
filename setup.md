@@ -1,6 +1,14 @@
 # How to Run virtual_geofence on Ubuntu Server 24.04
 
-Since you are running Ubuntu Server, you have the ideal, lightweight environment for ROS 2 on a Raspberry Pi 3. We can install the official ROS 2 packages directly from the ROS repositories.
+This guide covers both the **Real Hardware (Raspberry Pi)** and **Simulation (Laptop/PC)** setups.
+
+---
+
+## Gazebo Troubleshooting & Migration Summary
+**Environment:** ROS 2 Jazzy, Gazebo Harmonic, Ubuntu WSL2
+
+### Why WSL2?
+Traditional Virtual Machines (VMware/VirtualBox) often suffer from severe 3D rendering issues in Gazebo Harmonic (Ogre2 engine), including unusable lag or violent flickering. WSL2 (via WSLg) provides direct GPU passthrough, allowing near-native performance without the need for hacky software rendering overrides.
 
 ---
 
@@ -320,39 +328,47 @@ ros2 launch virtual_geofence geofence_launch.py params_file:=src/virtual_geofenc
 
 ## Part 7: Run the Code (Testing Mode)
 
-To test the system without a physical GPS attached, open two separate terminal windows.
+There are three ways to test the geofence logic: using mock nodes, the full Gazebo simulation, or real hardware.
 
-### Terminal 1: Start the Geofence Node
+### Method A: Mock Nodes (No Simulation)
 
+To test the system without a physical GPS or a 3D simulation, open two separate terminal windows.
+
+#### Terminal 1: Start the Geofence Node
 ```bash
-cd ~/ros2_ws
-source install/setup.bash
 ros2 run virtual_geofence geofence_node --ros-args --params-file src/virtual_geofence/config/boundary.yaml
 ```
 
-Expected output:
-
-```
-[INFO] Boundary loaded with 4 vertices.
-[ERROR] GPIO init failed: No access to /dev/mem. Try running as root!. Running without GPIO.
-[INFO] Virtual Geo-fencing Node started.
-```
-
-> **Note:** The GPIO error is expected when testing without hardware. The node continues running normally. If you've added your user to `gpio` and applied the `/dev/gpiomem` udev rule (or adjusted permissions), you can run the node as your normal user — `sudo` is not required.
-
-### Terminal 2: Start the Mock GPS
-
-Open a new terminal tab or SSH session.
-
+#### Terminal 2: Start the Mock GPS
 ```bash
-cd ~/ros2_ws
-source install/setup.bash
 ros2 run virtual_geofence mock_gps_publisher
 ```
 
-### What to Expect
+### Method B: Gazebo Simulation (Recommended for Visual Testing)
 
-Once both are running, look at Terminal 1. You should see the Kalman Filter initialising, followed by live coordinate tracking. After a few seconds, the mock GPS will drift outside the coordinates defined in your `boundary.yaml`, and you will see:
+This method provides a full 3D environment with a robot spawning inside the field.
+
+```bash
+ros2 launch virtual_geofence sim_launch.py
+```
+
+**What to Expect:**
+*   Gazebo window opens with the `field.sdf` world.
+*   The `agribot` model spawns at `(0, -22)`.
+*   The `geofence_node` starts and listens to the `/gps/fix` topic published by the Gazebo GPS sensor.
+*   You can drive the robot using a teleop node (see below) to test boundary breaches.
+
+### Method C: Manual Control (Teleop)
+
+To drive the robot in simulation or on hardware, use the keyboard teleop node:
+
+```bash
+ros2 run teleop_twist_keyboard teleop_twist_keyboard
+```
+
+### What to Expect (Mock Nodes)
+
+Once both are running, look at the Geofence Node terminal. You should see the Kalman Filter initialising, followed by live coordinate tracking. After a few seconds, the mock GPS will drift outside the coordinates defined in your `boundary.yaml`, and you will see:
 
 ```
 [INFO] Kalman filter initialised at (7.518500, 4.517700)
@@ -444,3 +460,40 @@ Important notes:
 - If you prefer the service to run under `root` (not recommended), remove `User`/`Group` and drop `SupplementaryGroups=gpio` accordingly.
 
 After enabling the service, verify GPIO access with `ls -l /dev/gpiomem` and that the node logs show the Kalman filter initialising on the first GPS fix.
+
+---
+
+## Part 9: Simulation Setup (Laptop/PC - WSL2)
+
+**Note: Use WSL2 (Windows Subsystem for Linux) with WSLg for best performance.**
+
+### 1. Install ROS2 Jazzy Desktop
+If you are on a PC, you should install the `desktop` version of ROS2 to get Gazebo and RViz.
+```bash
+sudo apt update && sudo apt install ros-jazzy-desktop ros-jazzy-ros-gz -y
+```
+
+### 2. Install Project Dependencies
+```bash
+sudo apt install python3-shapely python3-numpy python3-filterpy -y
+```
+
+### 3. Enable GPU Acceleration (WSL2)
+By default, WSL might use software rendering. To enable hardware acceleration for your GPU:
+```bash
+# Check current renderer (should not be llvmpipe)
+glxinfo -B | grep "OpenGL renderer"
+
+# If needed, force D3D12 (NVIDIA/AMD/Intel)
+echo "export LIBGL_ALWAYS_SOFTWARE=false" >> ~/.bashrc
+echo "export GALLIUM_DRIVER=d3d12" >> ~/.bashrc
+source ~/.bashrc
+```
+
+### 4. Build and Run
+```bash
+cd ~/ros2_ws
+colcon build --symlink-install
+source install/setup.bash
+ros2 launch virtual_geofence sim_launch.py
+```
