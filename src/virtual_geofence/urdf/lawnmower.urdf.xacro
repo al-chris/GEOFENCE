@@ -1,0 +1,939 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro"
+       xmlns:gz="http://gazebosim.org/schema"
+       name="lawnmower">
+
+  <!-- ================================================================
+       LAWNBOT PRO — Autonomous Lawn Mower
+       Full visual detail | 2-DOF cutting deck arm | Spinning blade
+       3D LiDAR | IMU | Stereo + nadir cameras | GPS | Perimeter wire
+       Adapted from AgriBot Pro agricultural rover
+       ================================================================ -->
+
+  <!-- ===== CHASSIS ===== -->
+  <!-- Low-profile, wide mower body -->
+  <xacro:property name="base_l"  value="0.72"/>
+  <xacro:property name="base_w"  value="0.52"/>
+  <xacro:property name="base_h"  value="0.10"/>   <!-- flatter than agribot -->
+  <xacro:property name="base_m"  value="22.0"/>   <!-- heavier: battery + deck motor -->
+
+  <!-- ===== WHEELS ===== -->
+  <!-- Larger rear drive wheels typical of mowers -->
+  <xacro:property name="wr"    value="0.130"/>   <!-- radius -->
+  <xacro:property name="ww"    value="0.075"/>   <!-- width  -->
+  <xacro:property name="wm"    value="1.6"/>     <!-- mass   -->
+  <xacro:property name="wx"    value="0.230"/>   <!-- half wheelbase -->
+  <xacro:property name="wy"    value="0.310"/>   <!-- half track -->
+
+  <!-- ===== CUTTING DECK ARM ===== -->
+  <xacro:property name="deck_r" value="0.016"/>  <!-- arm tube radius -->
+
+  <!-- ==============================================================
+       INERTIA HELPERS
+       ============================================================== -->
+  <xacro:macro name="box_inertia" params="m l w h">
+    <inertial>
+      <mass value="${m}"/>
+      <inertia ixx="${m*(w*w+h*h)/12}" ixy="0" ixz="0"
+               iyy="${m*(l*l+h*h)/12}" iyz="0"
+               izz="${m*(l*l+w*w)/12}"/>
+    </inertial>
+  </xacro:macro>
+
+  <xacro:macro name="cyl_inertia" params="m r h">
+    <inertial>
+      <mass value="${m}"/>
+      <inertia ixx="${m*(3*r*r+h*h)/12}" ixy="0" ixz="0"
+               iyy="${m*(3*r*r+h*h)/12}" iyz="0"
+               izz="${m*r*r/2}"/>
+    </inertial>
+  </xacro:macro>
+
+  <xacro:macro name="null_inertia">
+    <inertial>
+      <mass value="0.001"/>
+      <inertia ixx="0.000001" ixy="0" ixz="0" iyy="0.000001" iyz="0" izz="0.000001"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- ==============================================================
+       MATERIALS
+       ============================================================== -->
+  <!-- Chassis — bright safety orange (consumer mower aesthetic) -->
+  <material name="body_orange">  <color rgba="0.92 0.38 0.06 1.0"/></material>
+  <!-- Accent — dark charcoal for trim panels -->
+  <material name="accent_dark">  <color rgba="0.14 0.14 0.16 1.0"/></material>
+  <!-- Frame rails — brushed aluminium -->
+  <material name="alu_frame">    <color rgba="0.55 0.57 0.60 1.0"/></material>
+  <!-- Tyre rubber -->
+  <material name="rubber_black"> <color rgba="0.09 0.09 0.09 1.0"/></material>
+  <!-- Wheel hub -->
+  <material name="hub_alloy">    <color rgba="0.78 0.80 0.83 1.0"/></material>
+  <!-- Sensor housing — dark charcoal -->
+  <material name="sensor_dark">  <color rgba="0.13 0.14 0.16 1.0"/></material>
+  <!-- Sensor glass / lens -->
+  <material name="lens_blue">    <color rgba="0.18 0.44 0.88 0.85"/></material>
+  <!-- PCB green -->
+  <material name="pcb_green">    <color rgba="0.08 0.35 0.14 1.0"/></material>
+  <!-- Battery black -->
+  <material name="batt_dark">    <color rgba="0.10 0.10 0.12 1.0"/></material>
+  <!-- Status LED yellow -->
+  <material name="led_yellow">   <color rgba="0.95 0.85 0.05 1.0"/></material>
+  <!-- Status LED red -->
+  <material name="led_red">      <color rgba="0.88 0.12 0.10 1.0"/></material>
+  <!-- Status LED green -->
+  <material name="led_green">    <color rgba="0.10 0.85 0.20 1.0"/></material>
+  <!-- Cutting deck / blade — steel silver -->
+  <material name="steel_silver"> <color rgba="0.72 0.74 0.78 1.0"/></material>
+  <!-- Blade disc (spinning) — polished steel -->
+  <material name="blade_steel">  <color rgba="0.85 0.87 0.90 1.0"/></material>
+  <!-- Deck housing — dark green plastic (grass stains!) -->
+  <material name="deck_green">   <color rgba="0.12 0.28 0.12 1.0"/></material>
+
+  <!-- ==============================================================
+       WHEEL MACRO
+       Knobby lawn mower tyre with hub
+       ============================================================== -->
+  <xacro:macro name="wheel" params="prefix x_s y_s">
+    <link name="${prefix}_wheel">
+      <!-- Main tyre -->
+      <visual>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wr}" length="${ww}"/></geometry>
+        <material name="rubber_black"/>
+      </visual>
+      <!-- Inner rim channel -->
+      <visual>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wr*0.82}" length="${ww*1.02}"/></geometry>
+        <material name="alu_frame"/>
+      </visual>
+      <!-- Hub disc -->
+      <visual>
+        <origin xyz="0 ${y_s*0.015} 0" rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wr*0.48}" length="${ww*0.30}"/></geometry>
+        <material name="hub_alloy"/>
+      </visual>
+      <!-- Hub centre cap — orange accent matching body -->
+      <visual>
+        <origin xyz="0 ${y_s*0.022} 0" rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wr*0.15}" length="${ww*0.20}"/></geometry>
+        <material name="body_orange"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wr}" length="${ww}"/></geometry>
+      </collision>
+      <xacro:cyl_inertia m="${wm}" r="${wr}" h="${ww}"/>
+    </link>
+
+    <joint name="${prefix}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child  link="${prefix}_wheel"/>
+      <origin xyz="${x_s*wx} ${y_s*wy} ${-base_h/2 + 0.005}" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <!-- Mowers are slower — lower velocity limit -->
+      <limit effort="30.0" velocity="8.0"/>
+      <dynamics damping="0.30" friction="0.60"/>
+    </joint>
+
+    <gazebo reference="${prefix}_wheel">
+      <!-- Tuned for grass contact: higher lateral friction -->
+      <mu1>1.2</mu1>
+      <mu2>0.20</mu2>
+      <fdir1>1 0 0</fdir1>
+      <kp>6e5</kp>
+      <kd>25.0</kd>
+      <material>Gazebo/Black</material>
+    </gazebo>
+  </xacro:macro>
+
+  <!-- ==============================================================
+       BASE FOOTPRINT
+       ============================================================== -->
+  <link name="base_footprint"/>
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child  link="base_link"/>
+    <origin xyz="0 0 ${wr + base_h/2 - 0.005}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ==============================================================
+       BASE LINK — multi-visual low-profile mower chassis
+       ============================================================== -->
+  <link name="base_link">
+    <!-- Main body shell — wide and flat -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${base_l} ${base_w} ${base_h}"/></geometry>
+      <material name="body_orange"/>
+    </visual>
+    <!-- Left side skirt panel (dark trim) -->
+    <visual>
+      <origin xyz="0 ${base_w/2 + 0.007} 0.015" rpy="0 0 0"/>
+      <geometry><box size="${base_l*0.88} 0.014 ${base_h*0.45}"/></geometry>
+      <material name="accent_dark"/>
+    </visual>
+    <!-- Right side skirt panel -->
+    <visual>
+      <origin xyz="0 ${-(base_w/2 + 0.007)} 0.015" rpy="0 0 0"/>
+      <geometry><box size="${base_l*0.88} 0.014 ${base_h*0.45}"/></geometry>
+      <material name="accent_dark"/>
+    </visual>
+    <!-- Front bumper bar (soft collision strip) -->
+    <visual>
+      <origin xyz="${base_l/2 + 0.018} 0 0.005" rpy="0 0 0"/>
+      <geometry><box size="0.022 ${base_w + 0.04} 0.022"/></geometry>
+      <material name="accent_dark"/>
+    </visual>
+    <!-- Rear discharge chute block-off plate -->
+    <visual>
+      <origin xyz="${-(base_l/2 - 0.010)} 0 0.015" rpy="0 0 0"/>
+      <geometry><box size="0.020 ${base_w*0.45} 0.038"/></geometry>
+      <material name="accent_dark"/>
+    </visual>
+    <!-- Top cover panel -->
+    <visual>
+      <origin xyz="-0.02 0 ${base_h/2 + 0.010}" rpy="0 0 0"/>
+      <geometry><box size="${base_l*0.80} ${base_w*0.84} 0.016"/></geometry>
+      <material name="body_orange"/>
+    </visual>
+    <!-- User control panel (rear, slightly raised dark pad) -->
+    <visual>
+      <origin xyz="${-(base_l/2 - 0.08)} 0 ${base_h/2 + 0.018}" rpy="0 0 0"/>
+      <geometry><box size="0.100 0.130 0.010"/></geometry>
+      <material name="accent_dark"/>
+    </visual>
+    <!-- Control panel LED strip: green = operational -->
+    <visual>
+      <origin xyz="${-(base_l/2 - 0.08)} 0 ${base_h/2 + 0.026}" rpy="0 0 0"/>
+      <geometry><box size="0.008 0.080 0.006"/></geometry>
+      <material name="led_green"/>
+    </visual>
+    <!-- Front status light bar (white/yellow for forward visibility) -->
+    <visual>
+      <origin xyz="${base_l/2 - 0.004} 0 0.040" rpy="0 0 0"/>
+      <geometry><box size="0.008 ${base_w*0.60} 0.016"/></geometry>
+      <material name="led_yellow"/>
+    </visual>
+    <!-- Rear brake/safety light strip (red) -->
+    <visual>
+      <origin xyz="${-(base_l/2 - 0.004)} 0 0.040" rpy="0 0 0"/>
+      <geometry><box size="0.008 ${base_w*0.42} 0.012"/></geometry>
+      <material name="led_red"/>
+    </visual>
+
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${base_l} ${base_w} ${base_h}"/></geometry>
+    </collision>
+    <xacro:box_inertia m="${base_m}" l="${base_l}" w="${base_w}" h="${base_h}"/>
+  </link>
+
+  <gazebo reference="base_link">
+    <material>Gazebo/Orange</material>
+  </gazebo>
+
+  <!-- ===== FOUR WHEELS ===== -->
+  <xacro:wheel prefix="fl" x_s=" 1" y_s=" 1"/>
+  <xacro:wheel prefix="fr" x_s=" 1" y_s="-1"/>
+  <xacro:wheel prefix="rl" x_s="-1" y_s=" 1"/>
+  <xacro:wheel prefix="rr" x_s="-1" y_s="-1"/>
+
+  <!-- ==============================================================
+       ELECTRONICS / BATTERY BAY (rear module, dominant for mowers)
+       Large capacity lithium pack (36V/10Ah typical)
+       ============================================================== -->
+  <link name="elec_bay">
+    <!-- Main bay shell -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.32 0.38 0.095"/></geometry>
+      <material name="accent_dark"/>
+    </visual>
+    <!-- Main Li-ion battery pack (dominant, takes most of bay) -->
+    <visual>
+      <origin xyz="0 0.04 0.020" rpy="0 0 0"/>
+      <geometry><box size="0.22 0.28 0.060"/></geometry>
+      <material name="batt_dark"/>
+    </visual>
+    <!-- Battery charge indicator strip (top face) -->
+    <visual>
+      <origin xyz="0 0.04 0.0495" rpy="0 0 0"/>
+      <geometry><box size="0.060 0.020 0.004"/></geometry>
+      <material name="led_green"/>
+    </visual>
+    <!-- Motor controller board (right of battery) -->
+    <visual>
+      <origin xyz="0 -0.13 0.026" rpy="0 0 0"/>
+      <geometry><box size="0.16 0.080 0.035"/></geometry>
+      <material name="pcb_green"/>
+    </visual>
+    <!-- Compute module (SBC e.g. Raspberry Pi CM4 or Jetson Orin NX) -->
+    <visual>
+      <origin xyz="0 -0.13 0.0525" rpy="0 0 0"/>
+      <geometry><box size="0.068 0.040 0.010"/></geometry>
+      <material name="pcb_green"/>
+    </visual>
+    <!-- Connector panel (rear face) -->
+    <visual>
+      <origin xyz="${-0.32/2 + 0.003} 0 0.008" rpy="0 0 0"/>
+      <geometry><box size="0.006 0.18 0.028"/></geometry>
+      <material name="sensor_dark"/>
+    </visual>
+    <xacro:box_inertia m="5.5" l="0.32" w="0.38" h="0.095"/>
+  </link>
+
+  <joint name="elec_bay_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="elec_bay"/>
+    <origin xyz="-0.20 0 ${base_h/2 + 0.0475}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ==============================================================
+       SENSOR ARCH — wide protective roll-bar style arch
+       Replaces agribot slim pole. Two legs rise from the chassis top
+       and meet a horizontal crossbar carrying the LiDAR + camera pod.
+       Form follows function: the arch doubles as an operator safety
+       guard and a rigid sensor platform, consistent with commercial
+       robotic mower design (vs. the rover's antenna-style mast).
+
+       Geometry (all rel to sensor_mast joint = base_link top-centre):
+         Legs:     y = ±0.160 m, rise 0..0.120 m
+         Crossbar: spans ±0.160 m at z = 0.120 m, depth 0.030 m
+         LiDAR:    sits on crossbar centre riser at z = 0.170 m
+       World heights:
+         Crossbar top  ≈ 0.345 m   (footprint 0.175 + base_h/2 0.05 + 0.120)
+         LiDAR centre  ≈ 0.395 m   clear line of sight over chassis
+       ============================================================== -->
+  <link name="sensor_mast">
+
+    <!-- ── Left arch leg ── -->
+    <visual>
+      <!-- Leg base sits at chassis top (z=0), rises to crossbar (z=0.120).
+           Cylinder centre at z = 0.060, length 0.122 for a small overlap. -->
+      <origin xyz="0 0.160 0.060" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.014" length="0.122"/></geometry>
+      <material name="alu_frame"/>
+    </visual>
+    <!-- Left leg foot collar (orange accent at chassis surface) -->
+    <visual>
+      <origin xyz="0 0.160 0.006" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.022" length="0.012"/></geometry>
+      <material name="body_orange"/>
+    </visual>
+
+    <!-- ── Right arch leg ── -->
+    <visual>
+      <origin xyz="0 -0.160 0.060" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.014" length="0.122"/></geometry>
+      <material name="alu_frame"/>
+    </visual>
+    <!-- Right leg foot collar -->
+    <visual>
+      <origin xyz="0 -0.160 0.006" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.022" length="0.012"/></geometry>
+      <material name="body_orange"/>
+    </visual>
+
+    <!-- ── Horizontal crossbar ── (spans between leg tops) -->
+    <!-- Main crossbar tube: spans y = -0.160..+0.160, depth in x = 0.030 -->
+    <visual>
+      <origin xyz="0 0 0.120" rpy="${pi/2} 0 0"/>
+      <geometry><cylinder radius="0.014" length="0.320"/></geometry>
+      <material name="alu_frame"/>
+    </visual>
+    <!-- Crossbar front face strip (orange highlight) -->
+    <visual>
+      <origin xyz="0.016 0 0.120" rpy="0 0 0"/>
+      <geometry><box size="0.006 0.310 0.028"/></geometry>
+      <material name="body_orange"/>
+    </visual>
+    <!-- Crossbar cable conduit (dark channel running along rear face) -->
+    <visual>
+      <origin xyz="-0.012 0 0.120" rpy="0 0 0"/>
+      <geometry><box size="0.010 0.280 0.014"/></geometry>
+      <material name="accent_dark"/>
+    </visual>
+
+    <!-- ── Central LiDAR riser (short stub on crossbar top-centre) ── -->
+    <visual>
+      <origin xyz="0 0 0.148" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.018" length="0.058"/></geometry>
+      <material name="alu_frame"/>
+    </visual>
+    <!-- Riser mounting plate (square pad) -->
+    <visual>
+      <origin xyz="0 0 0.132" rpy="0 0 0"/>
+      <geometry><box size="0.044 0.044 0.010"/></geometry>
+      <material name="sensor_dark"/>
+    </visual>
+
+    <xacro:box_inertia m="0.55" l="0.030" w="0.320" h="0.170"/>
+  </link>
+
+  <!-- sensor_mast joint: anchored to base_link top, slightly forward of centre -->
+  <joint name="mast_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="sensor_mast"/>
+    <!-- x=0.08 forward, z=base_h/2 (top surface of chassis) -->
+    <origin xyz="0.08 0 ${base_h/2}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ==============================================================
+       3D LiDAR — atop mast, obstacle + boundary avoidance
+       ============================================================== -->
+  <link name="lidar_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.040" length="0.065"/></geometry>
+      <material name="sensor_dark"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.036" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.015"/></geometry>
+      <material name="alu_frame"/>
+    </visual>
+    <!-- Scanning window band -->
+    <visual>
+      <origin xyz="0 0 0.006" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.043" length="0.034"/></geometry>
+      <material name="lens_blue"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 -0.035" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.047" length="0.008"/></geometry>
+      <material name="alu_frame"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.048" length="0.068"/></geometry>
+    </collision>
+    <xacro:cyl_inertia m="0.48" r="0.040" h="0.065"/>
+  </link>
+
+  <joint name="lidar_joint" type="fixed">
+    <parent link="sensor_mast"/>
+    <child  link="lidar_link"/>
+    <!-- Riser top at z=0.177 rel sensor_mast; LiDAR centre 0.033 above that -->
+    <origin xyz="0 0 0.210" rpy="0 0 0"/>
+  </joint>
+
+  <gazebo reference="lidar_link">
+    <sensor name="lidar_3d" type="gpu_lidar">
+      <pose>0 0 0 0 0 0</pose>
+      <visualize>false</visualize>
+      <update_rate>10</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>512</samples>
+            <resolution>1</resolution>
+            <min_angle>${-pi}</min_angle>
+            <max_angle>${pi}</max_angle>
+          </horizontal>
+          <vertical>
+            <!-- Narrower vertical FOV than agribot: mower environment is flat -->
+            <samples>8</samples>
+            <resolution>1</resolution>
+            <min_angle>${-pi*10/180}</min_angle>
+            <max_angle>${pi*10/180}</max_angle>
+          </vertical>
+        </scan>
+        <range>
+          <min>0.10</min>
+          <!-- Shorter max range: garden scale -->
+          <max>30.0</max>
+          <resolution>0.004</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.008</stddev>
+        </noise>
+      </ray>
+      <topic>/lidar/points</topic>
+    </sensor>
+    <material>Gazebo/Black</material>
+  </gazebo>
+
+  <!-- ==============================================================
+       STEREO DEPTH CAMERA — person, pet, and obstacle detection
+       ============================================================== -->
+  <link name="stereo_camera_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.026 0.130 0.030"/></geometry>
+      <material name="sensor_dark"/>
+    </visual>
+    <!-- Left lens -->
+    <visual>
+      <origin xyz="0.014 -0.042 0" rpy="${pi/2} 0 0"/>
+      <geometry><cylinder radius="0.009" length="0.010"/></geometry>
+      <material name="lens_blue"/>
+    </visual>
+    <!-- RGB centre -->
+    <visual>
+      <origin xyz="0.014 0 0" rpy="${pi/2} 0 0"/>
+      <geometry><cylinder radius="0.010" length="0.010"/></geometry>
+      <material name="lens_blue"/>
+    </visual>
+    <!-- Right lens -->
+    <visual>
+      <origin xyz="0.014 0.042 0" rpy="${pi/2} 0 0"/>
+      <geometry><cylinder radius="0.009" length="0.010"/></geometry>
+      <material name="lens_blue"/>
+    </visual>
+    <visual>
+      <origin xyz="0.014 -0.055 0.010" rpy="${pi/2} 0 0"/>
+      <geometry><sphere radius="0.004"/></geometry>
+      <material name="led_green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.028 0.130 0.032"/></geometry>
+    </collision>
+    <xacro:box_inertia m="0.090" l="0.028" w="0.130" h="0.032"/>
+  </link>
+
+  <joint name="stereo_camera_joint" type="fixed">
+    <parent link="sensor_mast"/>
+    <child  link="stereo_camera_link"/>
+    <!-- Mounted on crossbar front face, centred, at crossbar height -->
+    <origin xyz="0.022 0 0.120" rpy="0 0 0"/>
+  </joint>
+
+  <link name="stereo_camera_optical"/>
+  <joint name="stereo_optical_joint" type="fixed">
+    <parent link="stereo_camera_link"/>
+    <child  link="stereo_camera_optical"/>
+    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+  </joint>
+
+  <gazebo reference="stereo_camera_link">
+    <sensor name="stereo_depth" type="depth">
+      <gz:frame_id>stereo_camera_optical</gz:frame_id>
+      <pose>0 0 0 0 0 0</pose>
+      <visualize>false</visualize>
+      <update_rate>10</update_rate>
+      <camera>
+        <horizontal_fov>1.518</horizontal_fov>
+        <image>
+          <width>320</width>
+          <height>240</height>
+          <format>R8G8B8</format>
+        </image>
+        <clip><near>0.08</near><far>8.0</far></clip>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.002</stddev>
+        </noise>
+      </camera>
+      <topic>/camera/depth</topic>
+    </sensor>
+    <material>Gazebo/Black</material>
+  </gazebo>
+
+  <!-- ==============================================================
+       NADIR CAMERA — grass height and condition monitoring
+       Replaces crop inspection camera; now used for turf assessment
+       ============================================================== -->
+  <link name="nadir_camera_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.030 0.030 0.020"/></geometry>
+      <material name="sensor_dark"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 -0.013" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.009" length="0.010"/></geometry>
+      <material name="lens_blue"/>
+    </visual>
+    <xacro:null_inertia/>
+  </link>
+
+  <joint name="nadir_camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="nadir_camera_link"/>
+    <!-- Angled 45 degrees forward to troubleshoot the view while keeping position -->
+    <origin xyz="0.08 0 ${-base_h/2 - 0.010}" rpy="0 ${pi*4} 0"/>
+  </joint>
+
+  <link name="nadir_camera_optical"/>
+  <joint name="nadir_optical_joint" type="fixed">
+    <parent link="nadir_camera_link"/>
+    <child  link="nadir_camera_optical"/>
+    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+  </joint>
+
+  <gazebo reference="nadir_camera_link">
+    <sensor name="nadir_cam" type="camera">
+      <gz:frame_id>nadir_camera_optical</gz:frame_id>
+      <update_rate>5</update_rate>
+      <visualize>false</visualize>
+      <topic>/camera/nadir</topic>
+      <camera>
+        <!-- Reduced resolution for better performance -->
+        <horizontal_fov>1.222</horizontal_fov>
+        <image><width>320</width><height>240</height><format>R8G8B8</format></image>
+        <clip><near>0.05</near><far>1.5</far></clip>
+      </camera>
+    </sensor>
+    <material>Gazebo/Black</material>
+  </gazebo>
+
+
+  <!-- ==============================================================
+       IMU
+       ============================================================== -->
+  <link name="imu_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.026 0.026 0.007"/></geometry>
+      <material name="led_red"/>
+    </visual>
+    <xacro:null_inertia/>
+  </link>
+
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="imu_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <gazebo reference="imu_link">
+    <sensor name="imu" type="imu">
+      <always_on>true</always_on>
+      <update_rate>400</update_rate>
+      <imu>
+        <angular_velocity>
+          <x><noise type="gaussian"><mean>0</mean><stddev>0.00018</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0</mean><stddev>0.00018</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0</mean><stddev>0.00018</stddev></noise></z>
+        </angular_velocity>
+        <linear_acceleration>
+          <x><noise type="gaussian"><mean>0</mean><stddev>0.009</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0</mean><stddev>0.009</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0</mean><stddev>0.009</stddev></noise></z>
+        </linear_acceleration>
+      </imu>
+      <topic>/imu/data_raw</topic>
+    </sensor>
+  </gazebo>
+
+  <!-- ==============================================================
+       GPS (RTK for centimetre-level boundary tracking)
+       ============================================================== -->
+  <link name="gps_link">
+    <visual>
+      <origin xyz="0 0 0.0035" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.040" length="0.007"/></geometry>
+      <material name="alu_frame"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.022" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.020" length="0.030"/></geometry>
+      <material name="sensor_dark"/>
+    </visual>
+    <xacro:null_inertia/>
+  </link>
+
+  <joint name="gps_joint" type="fixed">
+    <parent link="elec_bay"/>
+    <child  link="gps_link"/>
+    <origin xyz="-0.05 -0.04 0.0475" rpy="0 0 0"/>
+  </joint>
+
+  <gazebo reference="gps_link">
+    <sensor name="navsat" type="navsat">
+      <always_on>true</always_on>
+      <!-- Higher rate for RTK corrections -->
+      <update_rate>20</update_rate>
+      <topic>/gps/fix</topic>
+    </sensor>
+  </gazebo>
+
+  <!-- ==============================================================
+       PERIMETER WIRE SENSOR (NEW — not in agribot)
+       Detects the buried boundary wire signal.
+       Two receiver coils: front-left and front-right for steering cue.
+       ============================================================== -->
+  <link name="perimeter_rx_left">
+    <!-- Small coil housing -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.018" length="0.022"/></geometry>
+      <material name="sensor_dark"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.013" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.012" length="0.008"/></geometry>
+      <material name="pcb_green"/>
+    </visual>
+    <xacro:null_inertia/>
+  </link>
+  <joint name="perimeter_rx_left_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="perimeter_rx_left"/>
+    <origin xyz="${base_l/2 - 0.04} ${base_w/2 - 0.04} ${-base_h/2 - 0.014}" rpy="0 0 0"/>
+  </joint>
+
+  <link name="perimeter_rx_right">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.018" length="0.022"/></geometry>
+      <material name="sensor_dark"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.013" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.012" length="0.008"/></geometry>
+      <material name="pcb_green"/>
+    </visual>
+    <xacro:null_inertia/>
+  </link>
+  <joint name="perimeter_rx_right_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="perimeter_rx_right"/>
+    <origin xyz="${base_l/2 - 0.04} ${-(base_w/2 - 0.04)} ${-base_h/2 - 0.014}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ==============================================================
+       2-DOF CUTTING DECK ARM + SPINNING BLADE
+       Replaces 3-DOF soil sampling arm + prismatic probe.
+
+       Joints:
+         deck_turret_joint  — revolute, yaw ±30° (edge/row alignment)
+         deck_pitch_joint   — revolute, pitch ±5° (terrain following)
+         blade_joint        — continuous (3000–4500 RPM electric motor)
+
+       GEOMETRY (verified against wheel/chassis clearances):
+         base_link centre world Z          =  0.175 m (= wr + base_h/2 - 0.005)
+         chassis floor world Z             =  0.125 m
+         deck_turret_joint world Z         =  0.127 m (chassis floor + 0.002)
+         deck_pitch_joint world Z          =  0.117 m (turret - 0.010)
+         blade nominal world Z             =  0.045 m (45 mm cut height) ✓
+         deck housing bottom world Z       =  0.044 m                   ✓
+         wheel contact world Z             =  0.000 m
+
+       The blade and housing clear the ground by ~44 mm. The housing
+       radius (0.150 m) fits within the half-track (0.310 m) so the
+       deck does not extend laterally past the wheels.
+       ============================================================== -->
+
+  <!-- Deck turret / pivot — short squat cylinder, mostly above chassis floor -->
+  <link name="deck_turret">
+    <!-- Body sits above the joint origin (z=+0.020 puts it inside chassis floor) -->
+    <visual>
+      <origin xyz="0 0 0.020" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.032" length="0.035"/></geometry>
+      <material name="sensor_dark"/>
+    </visual>
+    <!-- Rotation indicator ring flush at joint plane -->
+    <visual>
+      <origin xyz="0 0 0.002" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.036" length="0.007"/></geometry>
+      <material name="body_orange"/>
+    </visual>
+    <xacro:cyl_inertia m="0.18" r="0.032" h="0.035"/>
+  </link>
+
+  <!-- Turret yaw: ±30° edge trimming alignment -->
+  <joint name="deck_turret_joint" type="revolute">
+    <parent link="base_link"/>
+    <child  link="deck_turret"/>
+    <!-- Front of chassis, 2 mm above floor so turret body stays inside -->
+    <origin xyz="${base_l/2 - 0.08} 0 ${-base_h/2 + 0.002}" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="${-pi/6}" upper="${pi/6}" effort="10.0" velocity="0.8"/>
+    <dynamics damping="0.6" friction="0.25"/>
+  </joint>
+
+  <!-- Deck arm — short drop from turret to housing.
+       pitch joint is 10 mm below turret (world Z = 0.117 m).
+       Arm tube length = 72 mm places blade at 45 mm world Z.
+       Housing is a shallow disc (28 mm tall) centred 12 mm above blade plane
+       → housing bottom at 44 mm world Z, clear of ground. -->
+  <link name="deck_arm">
+    <!-- Arm tube: from pitch joint (z=0) down to blade plane (z=-0.072) -->
+    <visual>
+      <origin xyz="0 0 -0.036" rpy="0 0 0"/>
+      <geometry><cylinder radius="${deck_r}" length="0.072"/></geometry>
+      <material name="alu_frame"/>
+    </visual>
+    <!-- Motor pod (spindle motor housing, sits mid-tube) -->
+    <visual>
+      <origin xyz="0 0 -0.026" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.028" length="0.032"/></geometry>
+      <material name="sensor_dark"/>
+    </visual>
+
+    <!-- Deck housing shell — shallow disc enclosing the blade.
+         Centre at z=-0.060 (12 mm above blade plane), height=0.028.
+         Bottom at z=-0.074 → world Z = 0.117 - 0.074 = 0.043 m ✓ -->
+    <visual>
+      <origin xyz="0 0 -0.060" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.150" length="0.028"/></geometry>
+      <material name="deck_green"/>
+    </visual>
+    <!-- Deck top reinforcement ring (aluminium inner ring) -->
+    <visual>
+      <origin xyz="0 0 -0.048" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.120" length="0.008"/></geometry>
+      <material name="alu_frame"/>
+    </visual>
+    <!-- Deck lip / skirt (thin wall extending down from housing edge) -->
+    <visual>
+      <origin xyz="0 0 -0.074" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.152" length="0.004"/></geometry>
+      <material name="deck_green"/>
+    </visual>
+    <!-- Rear discharge chute opening (cut-out represented by a dark box) -->
+    <visual>
+      <origin xyz="-0.120 0 -0.060" rpy="0 0 0"/>
+      <geometry><box size="0.038 0.080 0.022"/></geometry>
+      <material name="accent_dark"/>
+    </visual>
+    <!-- Deck height-adjust label strip (orange band on housing top) -->
+    <visual>
+      <origin xyz="0 0.118 -0.048" rpy="0 0 0"/>
+      <geometry><box size="0.040 0.008 0.010"/></geometry>
+      <material name="body_orange"/>
+    </visual>
+
+    <collision>
+      <origin xyz="0 0 -0.060" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.152" length="0.030"/></geometry>
+    </collision>
+    <xacro:cyl_inertia m="0.75" r="0.150" h="0.032"/>
+  </link>
+
+  <!-- Pitch joint: ±5° terrain following (not primary height control —
+       cut height is set mechanically via spacer; this joint lets the
+       deck float over undulations without stalling the drive) -->
+  <joint name="deck_pitch_joint" type="revolute">
+    <parent link="deck_turret"/>
+    <child  link="deck_arm"/>
+    <!-- 10 mm below turret joint → world Z = 0.117 m -->
+    <origin xyz="0 0 -0.010" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <!-- ±5° float range for terrain compliance -->
+    <limit lower="${-pi*5/180}" upper="${pi*5/180}" effort="18.0" velocity="0.5"/>
+    <dynamics damping="1.2" friction="0.40"/>
+  </joint>
+
+  <!-- Blade assembly — two crossed bars on a central hub.
+       Sits at z=-0.072 rel pitch joint → world Z = 0.045 m (45 mm) -->
+  <link name="blade_assembly">
+    <!-- Central spindle hub -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.020" length="0.010"/></geometry>
+      <material name="steel_silver"/>
+    </visual>
+    <!-- Primary blade bar (full width 280 mm) -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.280 0.026 0.004"/></geometry>
+      <material name="blade_steel"/>
+    </visual>
+    <!-- Secondary mulching bar (slightly narrower, rotated 90°) -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 ${pi/2}"/>
+      <geometry><box size="0.260 0.020 0.003"/></geometry>
+      <material name="blade_steel"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.140" length="0.006"/></geometry>
+    </collision>
+    <xacro:cyl_inertia m="0.35" r="0.130" h="0.005"/>
+  </link>
+
+  <!-- Blade continuous joint — velocity-controlled by JointVelocityController -->
+  <!-- Positive CCW from above (standard convention) -->
+  <joint name="blade_joint" type="continuous">
+    <parent link="deck_arm"/>
+    <child  link="blade_assembly"/>
+    <!-- At z=-0.072 rel pitch joint → world Z = 0.045 m ✓ -->
+    <origin xyz="0 0 -0.072" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <!-- 4500 RPM ≈ 471 rad/s, 350 W brushless motor -->
+    <limit effort="50.0" velocity="471.0"/>
+    <dynamics damping="0.05" friction="0.80"/>
+  </joint>
+
+  <!-- ==============================================================
+       GAZEBO PLUGINS
+       ============================================================== -->
+  <gazebo>
+    <!-- 4WD Differential Drive (same topology as agribot) -->
+    <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
+      <left_joint>fl_wheel_joint</left_joint>
+      <left_joint>rl_wheel_joint</left_joint>
+      <right_joint>fr_wheel_joint</right_joint>
+      <right_joint>rr_wheel_joint</right_joint>
+      <wheel_separation>${wy * 2.0}</wheel_separation>
+      <wheel_radius>${wr}</wheel_radius>
+      <odom_publish_frequency>50</odom_publish_frequency>
+      <!-- Mower: slower, precise linear motion -->
+      <max_linear_acceleration>0.8</max_linear_acceleration>
+      <max_angular_acceleration>1.5</max_angular_acceleration>
+      <topic>/cmd_vel</topic>
+      <odom_topic>/odom</odom_topic>
+      <tf_topic>/tf</tf_topic>
+      <frame_id>odom</frame_id>
+      <child_frame_id>base_footprint</child_frame_id>
+    </plugin>
+
+    <!-- Joint states for all moving joints -->
+    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <topic>/joint_states</topic>
+      <joint_name>fl_wheel_joint</joint_name>
+      <joint_name>fr_wheel_joint</joint_name>
+      <joint_name>rl_wheel_joint</joint_name>
+      <joint_name>rr_wheel_joint</joint_name>
+      <joint_name>deck_turret_joint</joint_name>
+      <joint_name>deck_pitch_joint</joint_name>
+      <joint_name>blade_joint</joint_name>
+    </plugin>
+
+    <!-- Deck turret (pan) PID — low gains, smooth heading correction -->
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>deck_turret_joint</joint_name>
+      <topic>/deck/turret/cmd_pos</topic>
+      <p_gain>12.0</p_gain><i_gain>0.15</i_gain><d_gain>0.8</d_gain>
+      <i_max>1.5</i_max><i_min>-1.5</i_min>
+      <cmd_max>10.0</cmd_max><cmd_min>-10.0</cmd_min>
+    </plugin>
+
+    <!-- Deck pitch (cut height) PID — stiff enough to resist ground reaction -->
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>deck_pitch_joint</joint_name>
+      <topic>/deck/pitch/cmd_pos</topic>
+      <p_gain>28.0</p_gain><i_gain>0.40</i_gain><d_gain>2.0</d_gain>
+      <i_max>3.0</i_max><i_min>-3.0</i_min>
+      <cmd_max>18.0</cmd_max><cmd_min>-18.0</cmd_min>
+    </plugin>
+
+    <!-- Blade velocity controller — targets ~4000 RPM = ~419 rad/s -->
+    <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
+      <joint_name>blade_joint</joint_name>
+      <topic>/deck/blade/cmd_vel</topic>
+      <p_gain>1.80</p_gain><i_gain>0.05</i_gain><d_gain>0.02</d_gain>
+      <i_max>8.0</i_max><i_min>-8.0</i_min>
+      <cmd_max>50.0</cmd_max><cmd_min>-50.0</cmd_min>
+    </plugin>
+
+    <!-- Ground-truth pose publisher -->
+    <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+      <publish_link_pose>true</publish_link_pose>
+      <publish_sensor_pose>true</publish_sensor_pose>
+      <publish_collision_pose>false</publish_collision_pose>
+      <publish_visual_pose>false</publish_visual_pose>
+      <update_frequency>50</update_frequency>
+      <topic>/ground_truth/pose</topic>
+    </plugin>
+  </gazebo>
+
+</robot>

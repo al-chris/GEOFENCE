@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="grass_tuft">
+    <static>true</static>
+    <self_collide>false</self_collide>
+
+    <link name="base_link">
+      <visual name="dirt_base_visual">
+        <pose>0 0 0.005 0 0 0</pose>
+        <geometry>
+          <cylinder><radius>0.025</radius><length>0.01</length></cylinder>
+        </geometry>
+        <material>
+          <ambient>0.22 0.16 0.10 1</ambient>
+          <diffuse>0.22 0.16 0.10 1</diffuse>
+          <specular>0.02 0.02 0.02 1</specular>
+        </material>
+      </visual>
+
+      <collision name="dirt_base_collision">
+        <pose>0 0 0.005 0 0 0</pose>
+        <geometry>
+          <cylinder><radius>0.02</radius><length>0.01</length></cylinder>
+        </geometry>
+      </collision>
+
+      <!-- Simplified tuft visual: 3 crossed planes -->
+      <visual name="tuft_v1">
+        <pose>0 0 0.075 0 0 0</pose>
+        <geometry><box><size>0.05 0.001 0.15</size></box></geometry>
+        <material><ambient>0.10 0.35 0.08 1</ambient><diffuse>0.10 0.35 0.08 1</diffuse></material>
+      </visual>
+      <visual name="tuft_v2">
+        <pose>0 0 0.075 0 0 1.047</pose>
+        <geometry><box><size>0.05 0.001 0.15</size></box></geometry>
+        <material><ambient>0.12 0.38 0.09 1</ambient><diffuse>0.12 0.38 0.09 1</diffuse></material>
+      </visual>
+      <visual name="tuft_v3">
+        <pose>0 0 0.075 0 0 2.094</pose>
+        <geometry><box><size>0.05 0.001 0.15</size></box></geometry>
+        <material><ambient>0.11 0.36 0.08 1</ambient><diffuse>0.11 0.36 0.08 1</diffuse></material>
+      </visual>
+    </link>
+  </model>
+</sdf>

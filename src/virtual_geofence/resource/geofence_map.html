@@ -162,7 +162,7 @@
 
     <div class="section" id="sectionManualPolygon">
       <label class="label" for="polygonInput">Polygon input: one pair per line as "lat, lon" or JSON array.</label>
-      <textarea id="polygonInput" rows="6" placeholder="7.5180, 4.5160\n7.5190, 4.5160\n7.5190, 4.5170\n7.5180, 4.5170"></textarea>
+      <textarea id="polygonInput" rows="6" placeholder="51.507481, -0.127959\n51.507481, -0.127641\n51.507319, -0.127641\n51.507319, -0.127959"></textarea>
       <div class="actions">
         <button class="action-btn primary" id="applyPolygon">Apply Polygon</button>
         <button class="action-btn warn" id="undoPoint">Undo Last Point</button>
@@ -171,9 +171,9 @@
 
     <div class="section hidden" id="sectionManualCircle">
       <label class="label" for="circleLat">Center latitude</label>
-      <input id="circleLat" type="number" step="any" placeholder="7.5185" />
+      <input id="circleLat" type="number" step="any" placeholder="51.5074" />
       <label class="label" for="circleLon">Center longitude</label>
-      <input id="circleLon" type="number" step="any" placeholder="4.5168" />
+      <input id="circleLon" type="number" step="any" placeholder="-0.1278" />
       <label class="label" for="circleRadius">Radius (meters)</label>
       <input id="circleRadius" type="number" step="any" min="0" placeholder="50" />
       <div class="actions">
@@ -225,16 +225,16 @@
   <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
   <script>
     const defaultBoundaryCoords = [
-      [7.5180, 4.5160],
-      [7.5190, 4.5160],
-      [7.5190, 4.5170],
-      [7.5180, 4.5170]
+      [51.507481, -0.127959],
+      [51.507481, -0.127641],
+      [51.507319, -0.127641],
+      [51.507319, -0.127959]
     ];
 
-    const defaultCenter = [7.5185, 4.5168];
-    const defaultRadiusM = 50;
+    const defaultCenter = [51.5074, -0.1278];
+    const defaultRadiusM = 15;
 
-    const map = L.map('map').setView(defaultCenter, 18);
+    const map = L.map('map').setView(defaultCenter, 19);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 22,
       attribution: '© OpenStreetMap contributors'

@@ -9,6 +9,10 @@
   <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>nmea_navsat_driver</depend>
+  <depend>ros_gz_sim</depend>
+  <depend>ros_gz_bridge</depend>
+  <depend>xacro</depend>
+  <depend>robot_state_publisher</depend>
 
   <buildtool_depend>ament_python</buildtool_depend>
   <test_depend>ament_lint_auto</test_depend>

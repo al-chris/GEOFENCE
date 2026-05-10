@@ -1,6 +1,14 @@
 # How to Run virtual_geofence on Ubuntu Server 24.04
 
-Since you are running Ubuntu Server, you have the ideal, lightweight environment for ROS 2 on a Raspberry Pi 3. We can install the official ROS 2 packages directly from the ROS repositories.
+This guide covers both the **Real Hardware (Raspberry Pi)** and **Simulation (Laptop/PC)** setups.
+
+---
+
+## Gazebo Troubleshooting & Migration Summary
+**Environment:** ROS 2 Jazzy, Gazebo Harmonic, Ubuntu WSL2
+
+### Why WSL2?
+Traditional Virtual Machines (VMware/VirtualBox) often suffer from severe 3D rendering issues in Gazebo Harmonic (Ogre2 engine), including unusable lag or violent flickering. WSL2 (via WSLg) provides direct GPU passthrough, allowing near-native performance without the need for hacky software rendering overrides.
 
 ---
 
@@ -224,22 +232,11 @@ apt-cache pkgnames | grep '^ros-.*-ros-base$'
 sudo apt install -y ros-jazzy-ros-base python3-colcon-common-extensions
 ```
 
-If `python3-colcon-common-extensions` is not available from apt, install via pip:
+6. Install `uv` for dependency management
 
 ```bash
-python3 -m pip install --user -U colcon-common-extensions
-```
-
-Optional: Downgrades
-- The previous instructions recommended downgrading `liblz4-1`, `libzstd1`, and `zlib1g`.
-- Only attempt those exact downgrades if `apt` fails with unmet-dependency errors and you understand the risk. Example commands (use only if required):
-
-```bash
-sudo apt install -y --allow-downgrades \
-  liblz4-1=1.9.4-1build1 \
-  libzstd1=1.5.5+dfsg2-2build1 \
-  zlib1g=1:1.3.dfsg-3.1ubuntu2
-sudo apt-mark hold liblz4-1 libzstd1 zlib1g
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
 ```
 
 After installation, source ROS and verify:
@@ -252,26 +249,21 @@ ros2 --help
 python3 -m colcon --help
 ```
 
-```bash
-# 6. Install Python dependencies
-#    python3-filterpy is not in the apt repositories — install it via pip.
-sudo apt install -y python3-pip python3-shapely python3-numpy python3-rpi.gpio
-pip3 install filterpy --break-system-packages
-```
-
 ---
 
 ## Part 5: Set Up the ROS 2 Workspace
 
+The project is organized as a standard ROS 2 workspace. Dependencies are managed by `uv` at the root, while the package lives in `src/`.
+
 ```bash
 # 1. Clone the repository
 git clone https://github.com/al-chris/GEOFENCE ~/GEOFENCE
-```
+cd ~/GEOFENCE
 
-```bash
-# 2. Create the workspace and link the package into it
-mkdir -p ~/ros2_ws/src
-cp -r ~/GEOFENCE/. ~/ros2_ws/src/virtual_geofence
+# 2. Initialize the Python environment
+# We use --system-site-packages to bridge the venv with ROS 2 system libraries
+uv venv --system-site-packages
+uv pip install -r requirements.txt
 ```
 
 ---
@@ -280,79 +272,134 @@ cp -r ~/GEOFENCE/. ~/ros2_ws/src/virtual_geofence
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-cd ~/ros2_ws
-colcon build
+cd ~/GEOFENCE
+colcon build --symlink-install
 ```
 
 You should see `Summary: 1 package finished`.
 
-To avoid sourcing manually in every new terminal, add both source commands to your `~/.bashrc`:
+### Sourcing the Environment
+
+To simplify sourcing ROS, the virtual environment, and your workspace, use the provided helper script:
 
 ```bash
-echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
-echo "source ~/ros2_ws/install/setup.bash" >> ~/.bashrc
-source ~/.bashrc
+source source_all.bash
 ```
 
-### Editing `boundary.yaml`: rebuild vs no-rebuild workflows
-
-By default, `ros2 launch virtual_geofence geofence_launch.py` loads the installed params file from `install/.../share/virtual_geofence/config/boundary.yaml`.
-So if you edit `src/virtual_geofence/config/boundary.yaml`, rebuild so the installed copy is updated:
-
-```bash
-cd ~/ros2_ws
-colcon build --packages-select virtual_geofence
-source install/setup.bash
-```
-
-To avoid rebuilding for boundary-only edits, override the launch param file to point directly at the source YAML:
-
-```bash
-cd ~/ros2_ws
-source install/setup.bash
-ros2 launch virtual_geofence geofence_launch.py params_file:=src/virtual_geofence/config/boundary.yaml
-```
-
-> Note: In this project, prefer the `params_file:=...` launch argument above.
-> Using `--ros-args --params-file ...` directly with `ros2 launch` is not the recommended path for this multi-node launch file.
+This script ensures that `PYTHONPATH` is correctly set so that ROS nodes can find libraries (like `filterpy`) installed in your `.venv`.
 
 ---
 
 ## Part 7: Run the Code (Testing Mode)
 
-To test the system without a physical GPS attached, open two separate terminal windows.
+There are three ways to test the geofence logic: using mock nodes, the full Gazebo simulation, or real hardware. **Always ensure you have run `source source_all.bash` first.**
 
-### Terminal 1: Start the Geofence Node
+### Method A: Mock Nodes (No Simulation)
 
+To test the system without a physical GPS or a 3D simulation, open two separate terminal windows.
+
+#### Terminal 1: Start the Geofence Node
 ```bash
-cd ~/ros2_ws
-source install/setup.bash
-ros2 run virtual_geofence geofence_node --ros-args --params-file src/virtual_geofence/config/boundary.yaml
+ros2 run virtual_geofence geofence_node
 ```
 
-Expected output:
-
-```
-[INFO] Boundary loaded with 4 vertices.
-[ERROR] GPIO init failed: No access to /dev/mem. Try running as root!. Running without GPIO.
-[INFO] Virtual Geo-fencing Node started.
-```
-
-> **Note:** The GPIO error is expected when testing without hardware. The node continues running normally. If you've added your user to `gpio` and applied the `/dev/gpiomem` udev rule (or adjusted permissions), you can run the node as your normal user — `sudo` is not required.
-
-### Terminal 2: Start the Mock GPS
-
-Open a new terminal tab or SSH session.
-
+#### Terminal 2: Start the Mock GPS
 ```bash
-cd ~/ros2_ws
-source install/setup.bash
 ros2 run virtual_geofence mock_gps_publisher
 ```
 
-### What to Expect
+### Method B: Gazebo Simulation (Recommended for Visual Testing)
 
-Once both are running, look at Terminal 1. You should see the Kalman Filter initialising, followed by live coordinate tracking. After a few seconds, the mock GPS will drift outside the coordinates defined in your `boundary.yaml`, and you will see:
+This method provides a full 3D environment with a robot spawning inside the field.
+
+```bash
+ros2 launch virtual_geofence sim_launch.py
+```
+
+**What to Expect:**
+*   Gazebo window opens with the `field.sdf` world.
+*   The `lawnmower` model spawns at `(0, -22)`.
+*   The `geofence_node` starts and listens to the `/gps/fix` topic published by the Gazebo GPS sensor.
+*   You can drive the robot using a teleop node (see below) to test boundary breaches.
+
+### Method C: Manual Control (Teleop)
+
+To drive the robot manually using keyboard commands, use the `teleop_twist_keyboard` ROS 2 package. This allows you to publish velocity commands directly to the robot's `/cmd_vel` topic.
+
+#### Step 1: Start the Simulation or Hardware
+
+Ensure your robot is running in Gazebo or on the Pi:
+
+**Simulation:**
+```bash
+ros2 launch virtual_geofence sim_launch.py
+```
+
+**Hardware:**
+```bash
+ros2 run virtual_geofence geofence_node --ros-args --params-file src/virtual_geofence/config/boundary.yaml
+```
+
+#### Step 2: Launch Teleop in a New Terminal
+
+Open a second terminal, source the environment, and run the keyboard teleop node:
+
+```bash
+source source_all.bash
+ros2 run teleop_twist_keyboard teleop_twist_keyboard
+```
+
+**Expected output:**
+```
+Reading from keyboard
+Use arrow keys to move forward/backward and turn.
+q/z : increase/decrease max speeds by 10%
+w/x : increase/decrease only linear speed by 10%
+e/c : increase/decrease only angular speed by 10%
+space key, s : force stop
+CTRL-C to quit
+```
+
+#### Keyboard Controls
+
+**Make sure the teleop terminal window is in focus (click on it) before pressing keys.**
+
+| Key | Action | Description |
+| :--- | :--- | :--- |
+| **`i`** | **Forward** | Moves straight ahead. |
+| **`,`** | **Backward** | Moves straight back. |
+| **`j`** | **Rotate Left** | Spins the robot left in place. |
+| **`l`** | **Rotate Right** | Spins the robot right in place. |
+| **`u`** | **Curve Left** | Drives forward while turning left. |
+| **`o`** | **Curve Right** | Drives forward while turning right. |
+| **`m`** | **Curve Back Left** | Reverses while turning left. |
+| **`.`** | **Curve Back Right**| Reverses while turning right. |
+| **`k`** or **Space** | **Stop** | Instantly stops all movement. |
+| **`q` / `z`** | **Speed +/-** | Increases or decreases both linear and angular speed. |
+| **`w` / `x`** | **Linear +/-** | Increases or decreases linear speed only. |
+| **`e` / `c`** | **Angular +/-** | Increases or decreases rotation speed only. |
+| **Ctrl+C** | **Quit** | Exits the teleop controller. |
+
+#### What to Expect
+
+1. **Real-time movement:** The `lawnmower` model in Gazebo (or the physical robot) responds immediately to your key presses.
+2. **Geofence Enforcement:** If you drive the robot outside the boundary defined in `boundary.yaml`, the `geofence_node` will detect the breach, publish a stop command to `/cmd_vel`, and the robot will cease moving. You will see a `[WARN] BOUNDARY CROSSED` message in the node terminal.
+3. **Indicator Feedback:** On hardware, the Red LED and Buzzer will activate when the boundary is crossed.
+
+#### Troubleshooting
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| **Keys don't respond** | Teleop terminal not in focus | Click on the teleop terminal window to give it keyboard focus |
+| **`teleop_twist_keyboard` command not found** | Package not installed | Run `sudo apt install ros-jazzy-teleop-twist-keyboard` |
+| **Robot doesn't move** | Geofence node is blocking | Check if you are already outside the boundary. Re-enter the boundary or update `boundary.yaml`. |
+| **Robot moves erratically** | Conflicting publishers | Ensure no other nodes (like an autonomous planner) are publishing to `/cmd_vel` |
+
+---
+
+### What to Expect (Mock Nodes)
+
+Once both are running, look at the Geofence Node terminal. You should see the Kalman Filter initialising, followed by live coordinate tracking. After a few seconds, the mock GPS will drift outside the coordinates defined in your `boundary.yaml`, and you will see:
 
 ```
 [INFO] Kalman filter initialised at (7.518500, 4.517700)
@@ -444,3 +491,44 @@ Important notes:
 - If you prefer the service to run under `root` (not recommended), remove `User`/`Group` and drop `SupplementaryGroups=gpio` accordingly.
 
 After enabling the service, verify GPIO access with `ls -l /dev/gpiomem` and that the node logs show the Kalman filter initialising on the first GPS fix.
+
+---
+
+## Part 9: Simulation Setup (Laptop/PC - WSL2)
+
+**Note: Use WSL2 (Windows Subsystem for Linux) with WSLg for best performance.**
+
+### 1. Install ROS2 Jazzy Desktop
+If you are on a PC, you should install the `desktop` version of ROS2 to get Gazebo and RViz.
+```bash
+sudo apt update && sudo apt install ros-jazzy-desktop ros-jazzy-ros-gz -y
+```
+
+### 2. Configure Python Environment (uv)
+We use `uv` for local dependency management. It must be configured to see the system ROS2 packages.
+```bash
+# In the project root (GEOFENCE)
+rm -rf .venv
+uv venv --system-site-packages
+uv sync
+```
+
+### 3. Enable GPU Acceleration (WSL2)
+By default, WSL might use software rendering. To enable hardware acceleration for your GPU:
+```bash
+# Check current renderer (should not be llvmpipe)
+glxinfo -B | grep "OpenGL renderer"
+
+# If needed, force D3D12 (NVIDIA/AMD/Intel)
+echo "export LIBGL_ALWAYS_SOFTWARE=false" >> ~/.bashrc
+echo "export GALLIUM_DRIVER=d3d12" >> ~/.bashrc
+source ~/.bashrc
+```
+
+### 4. Build and Run
+```bash
+cd ~/GEOFENCE
+colcon build --symlink-install
+source source_all.bash
+ros2 launch virtual_geofence sim_launch.py
+```
