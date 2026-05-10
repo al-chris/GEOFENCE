@@ -21,8 +21,8 @@ class MockGPSPublisher(Node):
             # Some environments may not expose STATUS_FIX constant; fall back
             msg.status.status = 0
         # Spiral path — starts inside boundary, drifts outward
-        msg.latitude = 7.5185 + 0.0012 * math.sin(self._t)
-        msg.longitude = 4.5165 + 0.0012 * math.cos(self._t)
+        msg.latitude = 51.5074 + 0.00012 * math.sin(self._t)
+        msg.longitude = -0.1278 + 0.00012 * math.cos(self._t)
         self.pub.publish(msg)
         self._t += 0.08
 
