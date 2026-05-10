@@ -515,7 +515,7 @@
       <gz:frame_id>stereo_camera_optical</gz:frame_id>
       <pose>0 0 0 0 0 0</pose>
       <visualize>false</visualize>
-      <update_rate>20</update_rate>
+      <update_rate>10</update_rate>
       <camera>
         <horizontal_fov>1.518</horizontal_fov>
         <image>
@@ -556,8 +556,8 @@
   <joint name="nadir_camera_joint" type="fixed">
     <parent link="base_link"/>
     <child  link="nadir_camera_link"/>
-    <!-- Moved slightly back (x=0.08) and pointing DOWN (rpy="0 -pi/2 0") -->
-    <origin xyz="0.08 0 ${-base_h/2 - 0.010}" rpy="0 ${-pi/2} 0"/>
+    <!-- Angled 45 degrees forward to troubleshoot the view while keeping position -->
+    <origin xyz="0.08 0 ${-base_h/2 - 0.010}" rpy="0 ${pi*4} 0"/>
   </joint>
 
   <link name="nadir_camera_optical"/>
@@ -570,11 +570,11 @@
   <gazebo reference="nadir_camera_link">
     <sensor name="nadir_cam" type="camera">
       <gz:frame_id>nadir_camera_optical</gz:frame_id>
-      <update_rate>10</update_rate>
+      <update_rate>5</update_rate>
       <visualize>false</visualize>
       <topic>/camera/nadir</topic>
       <camera>
-        <!-- Wider FOV for turf coverage inspection -->
+        <!-- Reduced resolution for better performance -->
         <horizontal_fov>1.222</horizontal_fov>
         <image><width>320</width><height>240</height><format>R8G8B8</format></image>
         <clip><near>0.05</near><far>1.5</far></clip>
@@ -582,6 +582,7 @@
     </sensor>
     <material>Gazebo/Black</material>
   </gazebo>
+
 
   <!-- ==============================================================
        IMU
