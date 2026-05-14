@@ -251,7 +251,68 @@ python3 -m colcon --help
 
 ---
 
-## Part 5: Set Up the ROS 2 Workspace
+## Part 5: Install Build Tools
+
+Ubuntu images are often minimal. You will need these to compile some dependencies (like `dlib`).
+
+```bash
+sudo apt update
+sudo apt install -y cmake build-essential
+```
+
+#### Troubleshooting: "Unmet Dependencies" Error
+
+If you see an error like:
+```text
+The following packages have unmet dependencies:
+ dpkg-dev : Depends: bzip2 but it is not installable
+E: Unable to correct problems, you have held broken packages.
+```
+
+This typically occurs when the Ubuntu `noble-updates` repository is missing from your apt sources. Follow these steps to fix it:
+
+**Step 1: Check Current Repositories**
+```bash
+grep '^Suites:' /etc/apt/sources.list.d/ubuntu.sources
+```
+
+Expected output should include:
+```text
+Suites: noble
+Suites: noble-updates
+Suites: noble-security
+```
+
+**Step 2: Add Missing `noble-updates` Repository**
+
+If `noble-updates` is missing, add it with:
+```bash
+sudo tee -a /etc/apt/sources.list.d/ubuntu.sources > /dev/null <<'EOF'
+
+## Ubuntu updates repository. Provides post-release bug fixes,
+## hardware enablement updates, and updated package dependencies.
+Types: deb
+URIs: http://ports.ubuntu.com/ubuntu-ports/
+Suites: noble-updates
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+EOF
+```
+
+**Step 3: Refresh and Repair Packages**
+```bash
+sudo apt update
+sudo apt --fix-broken install
+```
+
+**Step 4: Retry Installation**
+```bash
+sudo apt install -y cmake build-essential
+```
+
+---
+
+## Part 6: Set Up the ROS 2 Workspace
 
 The project is organized as a standard ROS 2 workspace. Dependencies are managed by `uv` at the root, while the package lives in `src/`.
 
@@ -268,7 +329,7 @@ uv pip install -r requirements.txt
 
 ---
 
-## Part 6: Build the ROS 2 Workspace
+## Part 7: Build the ROS 2 Workspace
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -290,7 +351,7 @@ This script ensures that `PYTHONPATH` is correctly set so that ROS nodes can fin
 
 ---
 
-## Part 7: Run the Code (Testing Mode)
+## Part 8: Run the Code (Testing Mode)
 
 There are three ways to test the geofence logic: using mock nodes, the full Gazebo simulation, or real hardware. **Always ensure you have run `source source_all.bash` first.**
 
