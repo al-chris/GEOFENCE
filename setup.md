@@ -26,13 +26,13 @@ On your main computer (Windows, Mac, or Linux), download the Raspberry Pi Imager
 
 Insert your SD card into your computer's SD card reader and open Raspberry Pi Imager.
 
-- Under **Choose Device**, select **Raspberry Pi 3**.
+- Under **Choose Device**, select **Raspberry Pi 5**.
 - Under **Choose OS**, do not select the default Raspberry Pi OS. Instead:
   - Click **Other general-purpose OS**
   - Click **Ubuntu**
   - Select **Ubuntu Server 24.04 LTS (64-bit)** (or the latest LTS version available).
 
-> **Note:** While 32-bit uses slightly less RAM, 64-bit is the standard going forward and is fully supported on the Pi 3.
+> **Note:** The Raspberry Pi 5 is 64-bit only — Ubuntu Server 24.04 LTS (64-bit) is the correct image.
 
 ### 3. Configure Settings
 
@@ -51,7 +51,7 @@ Click **Yes** when warned that all existing data will be erased. Wait for the Im
 
 ### 5. First Boot
 
-Insert the SD card into the Raspberry Pi 3 and power it on.
+Insert the SD card into the Raspberry Pi 5 and power it on.
 
 > **Be patient:** The first boot takes several minutes as Ubuntu configures network settings and resizes the filesystem.
 
@@ -59,29 +59,37 @@ Log in using the username and password you set in the Imager.
 
 ---
 
-## Part 2: Raspberry Pi 3 — Bluetooth/UART Conflict Fix
+## Part 2: Raspberry Pi 5 — UART Configuration
 
-### The Problem
+### The Situation on Pi 5
 
-On the Raspberry Pi 3, the hardware UART (`/dev/ttyAMA0`) is assigned to the Bluetooth module by default. This leaves only the mini-UART (`/dev/ttyS0`) for the GPIO pins (14 & 15), which is clock-speed dependent and unreliable for GPS communication.
+On the Raspberry Pi 5, the RP1 chip provides several independent PL011 UARTs accessible via different GPIO header pin groups. Unlike the Pi 3, there is **no Bluetooth/UART conflict** on GPIO14/15 — Bluetooth uses a separate UART internally. However, the UART is not enabled on the GPIO header by default; you must load the appropriate device tree overlay.
 
-Symptoms:
-- Running `ls /dev/tty*` shows `/dev/ttyS0` but no `/dev/ttyAMA0`
-- GPS module receives no data or corrupted data over serial
-- `sudo cat /dev/ttyS0` shows nothing or garbage characters
+### Overlay Options
 
-### The Fix
+The RP1 chip on Pi 5 exposes the following UARTs across different header pin groups:
 
-Add the `disable-bt` device tree overlay to `/boot/firmware/config.txt`:
+| Overlay | TX / RX pins | Device |
+|---------|-------------|--------|
+| `uart0-pi5` | GPIO14 / GPIO15 (pins 8/10) | `/dev/ttyAMA0` |
+| `uart2-pi5` | GPIO4 / GPIO5 (pins 7/29) | `/dev/ttyAMA2` |
+| `uart3-pi5` | GPIO8 / GPIO9 (pins 24/21) | `/dev/ttyAMA3` |
+| `uart4-pi5` | GPIO12 / GPIO13 (pins 32/33) | `/dev/ttyAMA4` |
+
+> **Note:** There is no `uart1` as a distinct PL011 on Pi 5 the way there was on Pi 3. Pi 5 uses a set of PL011s via the RP1 chip — no mini-UART tradeoff exists.
+
+### Recommended: `uart0-pi5` (matches existing wiring)
+
+Since the GPS module is already wired to GPIO14/15 (physical pins 8/10), load the `uart0-pi5` overlay:
 
 ```bash
-echo "dtoverlay=disable-bt" | sudo tee -a /boot/firmware/config.txt
+echo "dtoverlay=uart0-pi5" | sudo tee -a /boot/firmware/config.txt
 sudo reboot
 ```
 
-> **Note:** On older Raspberry Pi OS versions the config file is at `/boot/config.txt`. On Ubuntu Server 24.04 and Raspberry Pi OS Bookworm/Trixie it is at `/boot/firmware/config.txt`. Writing to the wrong file has no effect.
+> **Note:** The config file is at `/boot/firmware/config.txt` on Ubuntu Server 24.04. On older Raspberry Pi OS versions it is at `/boot/config.txt`. Writing to the wrong file has no effect.
 
-After rebooting, verify the UART is free:
+After rebooting, verify the UART is available:
 
 ```bash
 ls /dev/tty* | grep -E "AMA|serial"
@@ -90,15 +98,19 @@ ls /dev/tty* | grep -E "AMA|serial"
 # /dev/serial0 -> ttyAMA0
 ```
 
-### Why It Works
+That's it — **no Bluetooth disabling is needed on Pi 5.**
 
-The `disable-bt` overlay detaches Bluetooth from the hardware UART and hands `/dev/ttyAMA0` back to the GPIO header. Bluetooth is disabled but the full, stable UART is now available for the GPS module on pins 8 (TX) and 10 (RX).
+### Alternative: Different Pin Pair
 
-### Side Effects
+If you'd rather free up GPIO14/15 for other peripherals, rewire the GPS to a different pin pair and load the matching overlay (`uart2-pi5`, `uart3-pi5`, or `uart4-pi5`). The same `/dev/ttyAMA*` device-permission steps apply — just use the overlay line and physical pins for that UART.
 
-- Bluetooth is fully disabled after applying this overlay.
+### Alternative: USB Connection
 
-If, after disabling Bluetooth, you see kernel messages or a login prompt repeatedly appearing on the serial console (many lines of HELP: loglevel... or similar), follow these steps to stop the console from using the serial port and to disable serial getty services:
+Many NEO-M8N breakout boards can be read over USB (either via an onboard USB-serial bridge or a cheap USB-TTL adapter). The device then shows up as `/dev/ttyUSB0` (already in the `dialout` group by default on Ubuntu), and you skip the overlay/`config.txt` dance entirely — at the cost of an extra cable or adapter.
+
+### Serial Console Cleanup (if needed)
+
+If you see kernel messages or a login prompt appearing on the serial port after enabling the UART, follow these steps to stop the console from using the serial port:
 
 **Step 1: Edit cmdline.txt:**
 
@@ -106,22 +118,11 @@ If, after disabling Bluetooth, you see kernel messages or a login prompt repeate
 sudo nano /boot/firmware/cmdline.txt
 ```
 
-**From:**
-```
-console=serial0,115200 multipath=off dwc_otg.lpm_enable=0 console=tty1 root=LABEL=writable rootfstype=ext4 rootwait fix>
-```
-
-**To:**
-```
-multipath=off dwc_otg.lpm_enable=0 console=tty1 root=LABEL=writable rootfstype=ext4 rootwait fix>
-```
-
-Use the **Home** key to jump to the start of the line, then delete `console=serial0,115200 ` (include the trailing space). Save with `Ctrl+O` → Enter → `Ctrl+X`.
+Remove `console=serial0,115200` (include the trailing space). Use the **Home** key to jump to the start of the line, then delete that token. Save with `Ctrl+O` → Enter → `Ctrl+X`.
 
 **Step 2: Disable serial getty services:**
 ```bash
 sudo systemctl disable serial-getty@ttyAMA0.service
-sudo systemctl disable serial-getty@ttyS0.service
 ```
 
 **Step 3: Reboot:**
@@ -413,7 +414,7 @@ Once both are running, look at the Geofence Node terminal. You should see the Ka
 
 ### GPS Module: NEO-M8N Wiring
 
-Connect the NEO-M8N GPS module to the Raspberry Pi 3 GPIO header as follows:
+Connect the NEO-M8N GPS module to the Raspberry Pi 5 GPIO header as follows:
 
 | NEO-M8N Pin | Raspberry Pi Pin | GPIO |
 |-------------|------------------|------|
