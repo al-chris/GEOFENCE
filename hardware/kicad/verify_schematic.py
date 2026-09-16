@@ -24,6 +24,21 @@ EPS = 1e-4
 
 POWER_NETS = {"+5V", "GND", "+VMOTOR"}
 
+# A2 = 594 x 420 mm.  KiCad's default worksheet puts the drawing frame's inner
+# border 10 mm in from each page edge, and anchors the title block to the
+# *frame's* bottom-right corner -- not the page corner.  The bounds below were
+# measured off the rendered sheet (scan the canvas for red-dominant pixels:
+# a border is continuous, text is not), because assuming the page corner put
+# zone D underneath the title block.
+PAGE_W, PAGE_H = 594, 420
+FRAME = (10, 10, PAGE_W - 10, PAGE_H - 10)
+TITLE_BLOCK = (473.5, 375.9, 582.0, 408.0)
+
+# The title block's text column starts ~6 mm in from its left edge.  KiCad
+# draws the Title field noticeably larger than the comment fields.
+TITLE_BLOCK_TEXT_LEFT = 480.0
+TITLE_BLOCK_FIELD_SIZE = {"title": 2.5, "company": 1.5, "comment": 1.5}
+
 # Reference designators whose terminals are identified by physical pin number
 # rather than pin name: WIRING.md addresses the Raspberry Pi header that way
 # ("Pin 11 / GPIO 17"), and its pin names repeat (GND x8, 5V x2, 3V3 x2).
@@ -259,6 +274,11 @@ for w in kids(root, "wire"):
     b = (round(float(xy[1][1]), 4), round(float(xy[1][2]), 4))
     if a == b:
         fail(f"zero-length wire at {a}")
+    # A diagonal wire between two pins looks deliberate but is almost always a
+    # layout slip, and it hides a real misalignment: if two pins were meant to
+    # line up, they do not.  Every wire here should be axis-aligned.
+    if abs(a[0] - b[0]) > EPS and abs(a[1] - b[1]) > EPS:
+        fail(f"diagonal wire from {a} to {b} (pins are not aligned)")
     wires.append((a, b))
 
 labels = [(( round(float(k[0][1]), 4), round(float(k[0][2]), 4) ), unq(l[1]))
@@ -412,8 +432,13 @@ for i in range(len(symbols)):
 # geometry: text collisions between labels and reference/value fields
 # --------------------------------------------------------------------------- #
 def text_box(text, x, y, size, justify):
+    # Approximate ink box.  KiCad's stroke font advances roughly 0.95 x height
+    # per character and uppercase text has a cap height of about the nominal
+    # size, so these are deliberately a little generous -- the point is to
+    # catch collisions worth looking at, and every warning still needs an eye
+    # on the rendered sheet.
     w = len(text) * size * 0.95 + 0.6
-    h = size * 1.35
+    h = size * 1.15
     if "right" in justify:
         x1, x2 = x - w, x
     elif "center" in justify:
@@ -433,8 +458,9 @@ texts = []
 for l in kids(root, "label"):
     at = kids(l, "at")[0]
     eff = kids(l, "effects")[0]
+    size = float(kids(kids(eff, "font")[0], "size")[0][1])
     j = [t for t in kids(eff, "justify")[0][1:]] if kids(eff, "justify") else []
-    texts.append((unq(l[1]), float(at[1]), float(at[2]), 1.27, " ".join(j)))
+    texts.append((unq(l[1]), float(at[1]), float(at[2]), size, " ".join(j)))
 for t in kids(root, "text"):
     at = kids(t, "at")[0]
     eff = kids(t, "effects")[0]
@@ -448,8 +474,26 @@ for sym in kids(root, "symbol"):
             continue
         at = kids(p, "at")[0]
         eff = kids(p, "effects")[0]
+        size = float(kids(kids(eff, "font")[0], "size")[0][1])
         j = [x for x in kids(eff, "justify")[0][1:]] if kids(eff, "justify") else ["center"]
-        texts.append((unq(p[2]), float(at[1]), float(at[2]), 1.27, " ".join(j)))
+        texts.append((unq(p[2]), float(at[1]), float(at[2]), size, " ".join(j)))
+
+# The title block renders its own text with the worksheet's sizes, so check the
+# fields that showed up as clipped in review separately.
+tb = kids(root, "title_block")
+if tb:
+    tb = tb[0]
+    avail = TITLE_BLOCK[2] - TITLE_BLOCK_TEXT_LEFT
+    fields = [("title", unq(kids(tb, "title")[0][1]))]
+    fields += [("company", unq(kids(tb, "company")[0][1]))] if kids(tb, "company") else []
+    fields += [("comment", unq(c[2])) for c in kids(tb, "comment")]
+    for kind, value in fields:
+        # KiCad's stroke font advances roughly 0.9 x height per character.
+        width = len(value) * TITLE_BLOCK_FIELD_SIZE[kind] * 0.9
+        if width > avail:
+            fail(f"title block {kind} {value!r} needs {width:.0f}mm "
+                 f"but only {avail:.0f}mm is available "
+                 f"(shorten it to <= {int(avail / (TITLE_BLOCK_FIELD_SIZE[kind] * 0.9))} chars)")
 
 boxes = [text_box(*t) for t in texts]
 for i in range(len(texts)):
@@ -462,15 +506,6 @@ for i in range(len(texts)):
 # --------------------------------------------------------------------------- #
 # geometry: nothing may sit on the worksheet title block or outside the frame
 # --------------------------------------------------------------------------- #
-# A2 = 594 x 420 mm.  KiCad's default worksheet puts the drawing frame 10 mm in
-# from each edge and anchors the title block to the bottom-right corner; the
-# kicanvas drawing-sheet model reports it as a 110 x 34 mm box 2 mm in from
-# that corner.
-PAGE_W, PAGE_H = 594, 420
-FRAME = (10, 10, PAGE_W - 10, PAGE_H - 10)
-TITLE_BLOCK = (PAGE_W - 110, PAGE_H - 34, PAGE_W - 2, PAGE_H - 2)
-
-
 def overlaps(a, b):
     return a[0] < b[2] - EPS and b[0] < a[2] - EPS and \
            a[1] < b[3] - EPS and b[1] < a[3] - EPS

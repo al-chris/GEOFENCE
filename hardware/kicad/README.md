@@ -31,6 +31,22 @@ All nets are connected via matching net labels (e.g. every wire tagged
 which keeps the sheet readable given how many signals fan out from the
 40-pin header.
 
+## Sizing: this sheet is meant to be printed on A4
+
+The sheet is A2, but it is written into reports on A4 — a 50% linear
+reduction. Text is therefore set at **3.0 mm** so it lands at ~1.5 mm on paper,
+which is slightly *better* than a native A4 KiCad schematic (KiCad's default
+text is 1.27 mm).
+
+Symbol bodies and pin pitches are scaled up to match (pin pitch is 5.08 mm),
+because a schematic symbol is a drawing convention rather than a physical
+dimension — nothing here is drawn to scale, and the header is still drawn with
+pin 1 top-left, odd pins down the left column and even pins down the right,
+exactly as on the real J8.
+
+If you instead print at 100% on **A2**, the text will simply look large: that
+is the trade the drawing is making, and it is deliberate.
+
 ## Files
 
 | File | Purpose |
@@ -50,11 +66,18 @@ python check_pin_convention.py     # must print "negated-Y placement confirmed"
 `verify_schematic.py` deliberately does **not** import the generator. It
 re-parses the emitted file from scratch and re-derives every pin position, so a
 generator bug cannot hide behind the same assumption in the checker. It fails
-on: unbalanced parentheses, dangling wire ends, pins that are neither wired nor
-no-connected, stray no-connect flags, off-grid connection points, symbol
-bounding-box overlaps, text overlaps, content overlapping the worksheet title
-block or falling outside the drawing frame, and any deviation from the
-reference netlist that it extracts and prints.
+on: unbalanced parentheses, dangling wire ends, diagonal wires (a diagonal link
+between two pins always means a real misalignment), pins that are neither wired
+nor no-connected, stray no-connect flags, off-grid connection points, symbol
+bounding-box overlaps, text overlaps, title-block fields too long for their
+column, content overlapping the worksheet title block or falling outside the
+drawing frame, and any deviation from the reference netlist that it extracts
+and prints.
+
+The diagonal-wire check earns its place: it was added after a layout edit
+silently introduced four diagonal driver-to-motor links, which looked
+plausible on screen but meant the motor pins were never aligned with the
+driver's `M+`/`M-` to begin with.
 
 ## Editing this schematic
 
@@ -138,5 +161,20 @@ cam.zoom = v.viewer.viewport.width / 130;  // 130 mm wide
 v.viewer.draw();
 ```
 
-The A2 worksheet's title block occupies x 484–592, y 386–418 mm — keep content
-out of that corner.
+The A2 worksheet's drawing frame inner border sits 10 mm in from each page
+edge. KiCad's title block is a fixed 108 × 32 mm rectangle anchored to the
+**frame's** bottom-right corner — *not* the page corner, which is an easy and
+silent mistake: assuming the page corner put zone D underneath the title block.
+On A2 the keep-out is therefore x 473.5–582, y 375.9–408 mm, and the whole
+content column (`CONTENT_LEFT`…`CONTENT_RIGHT`, x 18–470) sits clear of it, so
+every zone box shares the same left and right edge.
+
+Those numbers were measured off the rendered sheet rather than assumed. The
+reliable way to do that is to read the canvas pixels and count red-dominant
+pixels per column and per row across the block: a border is continuous, text is
+not. Under the light "Witch Hazel" theme the frame lines are muted red blended
+toward a near-white background, so test `r > 150 && r-g > 15 && r-b > 15`
+rather than a dark-red threshold.
+
+Title-block text overflows its column silently, so the *fields* are kept short
+and `verify_schematic.py` checks their length too.

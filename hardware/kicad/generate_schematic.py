@@ -21,21 +21,37 @@ Coordinate conventions (read this before changing anything)
 
       screen = instance_origin + (local_x, -local_y)
 
-  (equivalently, KiCad's placement transform is ``[1,0,0,-1]``).  This is
-  verified empirically against the KiCad demo projects: over six demos, 48
-  pin/wire coincidences only fit the negated-Y rule versus 1 that only fits the
-  naive ``+local_y`` rule.
+  (equivalently, KiCad's placement transform is ``[1,0,0,-1]``).  Verified
+  empirically against the KiCad demo projects -- over six demos, 48 pin/wire
+  coincidences fit only the negated-Y rule versus 1 for the naive
+  ``+local_y`` rule.  Run ``check_pin_convention.py`` to re-confirm.
 
-  So :func:`Sym.emit` negates every library pin/graphic Y (and negates pin
+  So :meth:`Sym.emit` negates every library pin/graphic Y (and negates pin
   angles), after which a pin's on-sheet position is simply
 
       instance_origin + pin.offset
 
   and no caller ever has to think about the flip again.
 
+Sizing / print target
+---------------------
+This sheet is A2 but is expected to be printed on A4, i.e. at 50% linear scale.
+Text is therefore sized at 3.0 mm so it lands at ~1.5 mm on A4 -- slightly
+better than a native A4 KiCad schematic, whose default text is 1.27 mm.
+Symbol bodies and pin pitches are scaled to match, because a schematic symbol
+is a drawing convention, not a physical dimension.
+
+Worksheet keep-out (measured from the renderer, not assumed)
+------------------------------------------------------------
+The drawing frame's inner border sits 10 mm in from each page edge, and KiCad's
+title block is a fixed 108 x 32 mm rectangle anchored to the *frame's* bottom
+right corner -- not the page corner.  On A2 that is x 473.5..582, y 375.9..408.
+:data:`CONTENT_RIGHT` plus the row budget below keep everything clear of it.
+
 Run ``python verify_schematic.py`` after regenerating: it re-derives every pin
 position *from the emitted file* using that same transform and fails loudly on
-dangling wires, unconnected pins, off-grid endpoints or overlapping symbols.
+dangling wires, unconnected pins, off-grid endpoints, overlapping symbols, text
+overlaps, and anything under the title block.
 """
 
 from __future__ import annotations
@@ -47,6 +63,23 @@ PROJECT = "geofence_lawnmower"
 ROOT_UUID = "9ed750d8-e90f-4cb6-aa14-8059ae2348b4"
 
 GRID = 1.27  # 50 mil
+
+# --- page + print sizing --------------------------------------------------- #
+PAGE = "A2"
+PAGE_W, PAGE_H = 594, 420
+FRAME = 10                                   # frame inner border inset
+TITLE_BLOCK = (473.5, 375.9, 582.0, 408.0)   # measured keep-out
+
+TXT = 3.0          # net labels and component references/values
+TXT_PIN = 2.5      # pin names and numbers (secondary to the net names, and
+                   # they have to fit inside a fixed-pitch symbol body)
+TXT_ZONE = 5.0     # zone headings
+TXT_TITLE = 6.0    # sheet title
+TXT_SUB = 3.0      # sheet subtitle
+
+# Every zone shares these outer edges so the drawing looks aligned, not ragged.
+CONTENT_LEFT = 18.0
+CONTENT_RIGHT = 470.0
 
 
 # --------------------------------------------------------------------------- #
@@ -77,18 +110,18 @@ class Pin:
     """A pin, positioned in SCREEN offsets from the symbol origin.
 
     offset_x/offset_y is the *connection point* (the end the wire attaches to).
-    ``angle`` is the SCREEN direction the pin extends in, i.e. the direction
-    from the connection point towards the symbol body:
+    ``angle`` is the SCREEN direction the pin extends in, i.e. from the
+    connection point towards the symbol body:
 
-        0 = +X (pin on the left  side of a body)
-      180 = -X (pin on the right side of a body)
-       90 = +Y (pin on the top     of a body, body below it)
-      270 = -Y (pin on the bottom  of a body, body above it)
+        0 = +X   (pin on the left  side of a body)
+      180 = -X   (pin on the right side of a body)
+       90 = +Y   (pin on the top     of a body, body below it)
+      270 = -Y   (pin on the bottom  of a body, body above it)
     """
 
     __slots__ = ("number", "name", "ox", "oy", "angle", "etype", "length")
 
-    def __init__(self, number, name, ox, oy, angle, etype="passive", length=2.54):
+    def __init__(self, number, name, ox, oy, angle, etype="passive", length=3.81):
         self.number = str(number)
         self.name = name
         self.ox = ox
@@ -101,8 +134,8 @@ class Pin:
         return (
             f"(pin {self.etype} line (at {xs(self.ox)} {xs(-self.oy)} "
             f"{xs((-self.angle) % 360)}) (length {xs(self.length)})\n"
-            f'  (name "{self.name}" (effects (font (size 1.27 1.27))))\n'
-            f'  (number "{self.number}" (effects (font (size 1.27 1.27))))\n'
+            f'  (name "{self.name}" (effects (font (size {xs(TXT_PIN)} {xs(TXT_PIN)}))))\n'
+            f'  (number "{self.number}" (effects (font (size {xs(TXT_PIN)} {xs(TXT_PIN)}))))\n'
             f")"
         )
 
@@ -132,11 +165,11 @@ class Sym:
         return (
             head
             + f'  (property "Reference" "{self.ref_prefix}" (at 0 0 0) '
-            f"(effects (font (size 1.27 1.27)) hide))\n"
+            f"(effects (font (size {xs(TXT)} {xs(TXT)})) hide))\n"
             + f'  (property "Value" "{self.name}" (at 0 0 0) '
-            f"(effects (font (size 1.27 1.27)) hide))\n"
+            f"(effects (font (size {xs(TXT)} {xs(TXT)})) hide))\n"
             + f'  (property "Footprint" "" (at 0 0 0) '
-            f"(effects (font (size 1.27 1.27)) hide))\n"
+            f"(effects (font (size {xs(TXT)} {xs(TXT)})) hide))\n"
             + f'  (symbol "{self.name}_0_1"\n{body}\n  )\n'
             + f'  (symbol "{self.name}_1_1"\n{pins}\n  )\n'
             + ")"
@@ -168,9 +201,11 @@ def poly(points, width=0.254):
 
 # --------------------------------------------------------------------------- #
 # symbol definitions
+#
+# Pin pitch is 5.08 mm everywhere, so 3.0 mm text has comfortable clearance
+# between adjacent pin names.  5.08 also keeps every row on the 1.27 mm grid
+# while staying symmetric about the symbol origin (2.54 == 2 x 1.27).
 # --------------------------------------------------------------------------- #
-# 40-pin Raspberry Pi header.  Pin 1 top-left, pin 2 top-right (the real J8
-# layout), odd pins on the left, even on the right.
 HEADER_ROWS = [
     (1, "3V3"), (2, "5V"), (3, "GPIO2_SDA"), (4, "5V"),
     (5, "GPIO3_SCL"), (6, "GND"), (7, "GPIO4"), (8, "GPIO14_TXD"),
@@ -184,20 +219,25 @@ HEADER_ROWS = [
     (37, "GPIO26"), (38, "GPIO20"), (39, "GND"), (40, "GPIO21"),
 ]
 
-HEADER_W2 = 20.32          # half body width
-HEADER_H2 = 25.4           # half body height
-HEADER_ROW0 = -24.13       # screen offset of row 0 (pin 1 / pin 2)
+HDR_PITCH = 5.08
+HDR_ROW0 = -48.26          # 19 rows at 5.08 -> +-48.26: symmetric and on grid
+HDR_W2 = 38.1              # half body width: wide enough that the left- and
+                           # right-hand pin names cannot meet in the middle
+HDR_H2 = 53.34             # half body height
+HDR_PINLEN = 5.08          # pins long enough to keep the pin numbers clear
+                           # of both the body edge and the net labels
 
 
 def _header_pins():
     pins = []
     for k, (number, name) in enumerate(HEADER_ROWS):
-        oy = HEADER_ROW0 + (k // 2) * 2.54
+        oy = HDR_ROW0 + (k // 2) * HDR_PITCH
         left = number % 2 == 1
         etype = "power_out" if name in ("3V3", "5V") else (
             "passive" if name == "GND" else "bidirectional")
-        pins.append(Pin(number, name, -HEADER_W2 - 2.54 if left else HEADER_W2 + 2.54,
-                        oy, 0 if left else 180, etype))
+        pins.append(Pin(number, name,
+                        -(HDR_W2 + HDR_PINLEN) if left else (HDR_W2 + HDR_PINLEN),
+                        oy, 0 if left else 180, etype, HDR_PINLEN))
     return pins
 
 
@@ -209,90 +249,91 @@ def _add(sym):
 
 
 _add(Sym("RPI5_J8_HEADER", "J",
-         [rect(-HEADER_W2, -HEADER_H2, HEADER_W2, HEADER_H2)],
+         [rect(-HDR_W2, -HDR_H2, HDR_W2, HDR_H2)],
          _header_pins()))
 
+# 4-pin sensor modules: two pins per side, 10.16 apart.
 _add(Sym("NEO_M8N_GPS", "U",
-         [rect(-12.7, -7.62, 12.7, 7.62)],
-         [Pin(1, "VCC", -15.24, -5.08, 0, "power_in"),
-          Pin(2, "GND", -15.24, 5.08, 0, "passive"),
-          Pin(3, "TXD", 15.24, -5.08, 180, "output"),
-          Pin(4, "RXD", 15.24, 5.08, 180, "input")]))
+         [rect(-19.05, -12.7, 19.05, 12.7)],
+         [Pin(1, "VCC", -22.86, -5.08, 0, "power_in"),
+          Pin(2, "GND", -22.86, 5.08, 0, "passive"),
+          Pin(3, "TXD", 22.86, -5.08, 180, "output"),
+          Pin(4, "RXD", 22.86, 5.08, 180, "input")]))
 
 _add(Sym("HC_SR04", "U",
-         [rect(-12.7, -7.62, 12.7, 7.62)],
-         [Pin(1, "VCC", -15.24, -5.08, 0, "power_in"),
-          Pin(2, "GND", -15.24, 5.08, 0, "passive"),
-          Pin(3, "TRIG", 15.24, -5.08, 180, "input"),
-          Pin(4, "ECHO", 15.24, 5.08, 180, "output")]))
+         [rect(-19.05, -12.7, 19.05, 12.7)],
+         [Pin(1, "VCC", -22.86, -5.08, 0, "power_in"),
+          Pin(2, "GND", -22.86, 5.08, 0, "passive"),
+          Pin(3, "TRIG", 22.86, -5.08, 180, "input"),
+          Pin(4, "ECHO", 22.86, 5.08, 180, "output")]))
 
 _add(Sym("BTS7960", "U",
-         [rect(-15.24, -11.43, 15.24, 11.43)],
-         [Pin(1, "VCC", -17.78, -8.89, 0, "power_in"),
-          Pin(2, "GND", -17.78, -6.35, 0, "passive"),
-          Pin(3, "RPWM", -17.78, -3.81, 0, "input"),
-          Pin(4, "LPWM", -17.78, -1.27, 0, "input"),
-          Pin(5, "R_EN", -17.78, 1.27, 0, "input"),
-          Pin(6, "L_EN", -17.78, 3.81, 0, "input"),
-          Pin(7, "R_IS", -17.78, 6.35, 0, "output"),
-          Pin(8, "L_IS", -17.78, 8.89, 0, "output"),
-          Pin(9, "B+", 17.78, -8.89, 180, "power_in"),
-          Pin(10, "B-", 17.78, -3.81, 180, "power_in"),
-          Pin(11, "M+", 17.78, 1.27, 180, "output"),
-          Pin(12, "M-", 17.78, 6.35, 180, "output")]))
+         [rect(-25.4, -22.86, 25.4, 22.86)],
+         [Pin(1, "VCC", -29.21, -17.78, 0, "power_in"),
+          Pin(2, "GND", -29.21, -12.7, 0, "passive"),
+          Pin(3, "RPWM", -29.21, -7.62, 0, "input"),
+          Pin(4, "LPWM", -29.21, -2.54, 0, "input"),
+          Pin(5, "R_EN", -29.21, 2.54, 0, "input"),
+          Pin(6, "L_EN", -29.21, 7.62, 0, "input"),
+          Pin(7, "R_IS", -29.21, 12.7, 0, "output"),
+          Pin(8, "L_IS", -29.21, 17.78, 0, "output"),
+          Pin(9, "B+", 29.21, -17.78, 180, "power_in"),
+          Pin(10, "B-", 29.21, -7.62, 180, "power_in"),
+          Pin(11, "M+", 29.21, 2.54, 180, "output"),
+          Pin(12, "M-", 29.21, 12.7, 180, "output")]))
 
 # Resistor: pin 1 on top, pin 2 on the bottom (the KiCad convention).
 _add(Sym("R", "R",
-         [rect(-1.27, -2.54, 1.27, 2.54)],
-         [Pin(1, "~", 0, -3.81, 90, "passive", 1.27),
-          Pin(2, "~", 0, 3.81, 270, "passive", 1.27)], hide_pin_numbers=True))
+         [rect(-2.54, -5.08, 2.54, 5.08)],
+         [Pin(1, "~", 0, -7.62, 90, "passive", 2.54),
+          Pin(2, "~", 0, 7.62, 270, "passive", 2.54)], hide_pin_numbers=True))
 
 _add(Sym("C", "C",
-         [poly([(-1.905, -0.635), (1.905, -0.635)], 0.508),
-          poly([(-1.905, 0.635), (1.905, 0.635)], 0.508)],
-         [Pin(1, "~", 0, -3.81, 90, "passive", 3.175),
-          Pin(2, "~", 0, 3.81, 270, "passive", 3.175)], hide_pin_numbers=True))
+         [poly([(-3.81, -1.27), (3.81, -1.27)], 0.508),
+          poly([(-3.81, 1.27), (3.81, 1.27)], 0.508)],
+         [Pin(1, "~", 0, -7.62, 90, "passive", 6.35),
+          Pin(2, "~", 0, 7.62, 270, "passive", 6.35)], hide_pin_numbers=True))
 
 # LED drawn pointing DOWN: anode (pin 1) on top, cathode (pin 2) below.
 _add(Sym("LED", "D",
-         [poly([(-1.27, -1.27), (1.27, -1.27), (0, 1.27), (-1.27, -1.27)]),
-          poly([(-1.27, 1.27), (1.27, 1.27)], 0.381),
-          poly([(1.905, -0.508), (3.302, -1.905)]),
-          poly([(3.302, -1.905), (2.286, -1.778)]),
-          poly([(3.302, -1.905), (3.175, -0.889)]),
-          poly([(2.413, 0.762), (3.81, -0.635)]),
-          poly([(3.81, -0.635), (2.794, -0.508)]),
-          poly([(3.81, -0.635), (3.683, 0.381)])],
-         [Pin(1, "A", 0, -3.81, 90, "passive"),
-          Pin(2, "K", 0, 3.81, 270, "passive")], hide_pin_numbers=True))
+         [poly([(-2.54, -2.54), (2.54, -2.54), (0, 2.54), (-2.54, -2.54)]),
+          poly([(-2.54, 2.54), (2.54, 2.54)], 0.508),
+          poly([(3.81, -1.016), (6.604, -3.81)]),
+          poly([(6.604, -3.81), (4.572, -3.556)]),
+          poly([(6.604, -3.81), (6.35, -1.778)]),
+          poly([(4.826, 1.524), (7.62, -1.27)]),
+          poly([(7.62, -1.27), (5.588, -1.016)]),
+          poly([(7.62, -1.27), (7.366, 0.762)])],
+         [Pin(1, "A", 0, -7.62, 90, "passive", 5.08),
+          Pin(2, "K", 0, 7.62, 270, "passive", 5.08)], hide_pin_numbers=True))
 
 _add(Sym("BUZZER", "BZ",
-         [circle(0, 0, 3.175)],
-         [Pin(1, "+", 0, -3.81, 90, "passive"),
-          Pin(2, "-", 0, 3.81, 270, "passive")], hide_pin_numbers=True))
+         [circle(0, 0, 6.35)],
+         [Pin(1, "+", 0, -7.62, 90, "passive", 1.27),
+          Pin(2, "-", 0, 7.62, 270, "passive", 1.27)], hide_pin_numbers=True))
 
 _add(Sym("DC_MOTOR", "M",
-         [circle(0, 0, 6.35, 0.381)],
-         [Pin(1, "+", -8.89, -2.54, 0, "passive", 3.81),
-          Pin(2, "-", -8.89, 2.54, 0, "passive", 3.81)], hide_pin_numbers=True))
+         [circle(0, 0, 12.7, 0.381)],
+         [Pin(1, "+", -17.78, -5.08, 0, "passive", 7.62),
+          Pin(2, "-", -17.78, 5.08, 0, "passive", 7.62)], hide_pin_numbers=True))
 
 _add(Sym("BATTERY_PACK", "BT",
-         [poly([(-4.445, -6.35), (4.445, -6.35)], 0.762),
-          poly([(-2.286, -4.445), (2.286, -4.445)], 0.381),
-          poly([(-4.445, -1.905), (4.445, -1.905)], 0.762),
-          poly([(-2.286, 0.0), (2.286, 0.0)], 0.381),
-          poly([(-4.445, 2.54), (4.445, 2.54)], 0.762),
-          poly([(-2.286, 4.445), (2.286, 4.445)], 0.381)],
+         [poly([(-8.89, -12.7), (8.89, -12.7)], 0.762),
+          poly([(-4.572, -8.89), (4.572, -8.89)], 0.381),
+          poly([(-8.89, -3.81), (8.89, -3.81)], 0.762),
+          poly([(-4.572, 0.0), (4.572, 0.0)], 0.381),
+          poly([(-8.89, 5.08), (8.89, 5.08)], 0.762),
+          poly([(-4.572, 8.89), (4.572, 8.89)], 0.381)],
          # The pack is the source of the +VMOTOR rail, so its positive terminal
          # is a power_out - that is what stops ERC from reporting the BTS7960
          # B+ power_in pins as undriven.
-         [Pin(1, "+", 0, -8.89, 90, "power_out", 2.54),
-          Pin(2, "-", 0, 8.89, 270, "passive", 4.445)], hide_pin_numbers=True))
+         [Pin(1, "+", 0, -17.78, 90, "power_out", 5.08),
+          Pin(2, "-", 0, 17.78, 270, "passive", 8.89)], hide_pin_numbers=True))
 
 _add(Sym("FUSE", "F",
-         [rect(-2.54, -1.27, 2.54, 1.27)],
-         [Pin(1, "~", -5.08, 0, 0, "passive"),
-          Pin(2, "~", 5.08, 0, 180, "passive")], hide_pin_numbers=True))
+         [rect(-5.08, -2.54, 5.08, 2.54)],
+         [Pin(1, "~", -10.16, 0, 0, "passive", 5.08),
+          Pin(2, "~", 10.16, 0, 180, "passive", 5.08)], hide_pin_numbers=True))
 
 
 # --------------------------------------------------------------------------- #
@@ -301,16 +342,16 @@ _add(Sym("FUSE", "F",
 class Sheet:
     def __init__(self):
         self.instances = []   # (Sym, ref, value, x, y, ref_off, ref_j, val_off, val_j)
-        self.wires = []       # ((x1,y1),(x2,y2))
-        self.labels = []      # (text, x, y, justify)
-        self.junctions = []   # (x, y)
-        self.no_connects = [] # (x, y)
-        self.texts = []       # (text, x, y, size, bold)
-        self.rects = []       # (x1,y1,x2,y2)
+        self.wires = []
+        self.labels = []
+        self.junctions = []
+        self.no_connects = []
+        self.texts = []
+        self.rects = []
 
     def place(self, lib, ref, value, x, y,
-              ref_off=(-3.302, -1.27), ref_j="right",
-              val_off=(-3.302, 1.27), val_j="right"):
+              ref_off=(0, -11.43), ref_j="center",
+              val_off=(0, 11.43), val_j="center"):
         inst = (SYMS[lib], ref, value, x, y, ref_off, ref_j, val_off, val_j)
         self.instances.append(inst)
         return inst
@@ -340,34 +381,41 @@ class Sheet:
     def label(self, text, pt, justify):
         self.labels.append((text, pt[0], pt[1], justify))
 
+    def zone(self, x1, y1, x2, y2, title):
+        self.rects.append((x1, y1, x2, y2))
+        self.texts.append((title, x1 + 4, y1 + TXT_ZONE + 2, TXT_ZONE, True))
+
 
 def build() -> Sheet:
     sh = Sheet()
 
     # ---------------- sheet furniture ------------------------------------- #
-    # The KiCad A2 worksheet title block occupies x 484..592, y 386..418, so
-    # every zone is kept clear of that corner.
-    sh.texts.append(("GEOFENCE -- AUTONOMOUS SMART LAWN MOWER", 20, 14, 2.6, True))
-    sh.texts.append(("Raspberry Pi 5 Hardware Interconnect  --  Differential Drive,"
-                     " GPS Boundary Enforcement, Ultrasonic Obstacle Avoidance",
-                     20, 19, 1.3, False))
+    # Left-aligned with the zone boxes so the heading reads as part of the
+    # drawing rather than floating near the frame border.
+    sh.texts.append(("GEOFENCE -- AUTONOMOUS SMART LAWN MOWER",
+                     CONTENT_LEFT, 25, TXT_TITLE, True))
+    sh.texts.append(("Raspberry Pi 5 hardware interconnect  --  differential drive,"
+                     " GPS boundary enforcement, ultrasonic obstacle avoidance",
+                     CONTENT_LEFT, 34, TXT_SUB, False))
 
-    sh.rects.append((18, 30, 200, 134))
-    sh.texts.append(("RASPBERRY PI 5 -- GPIO HEADER (J8)", 20, 36, 3, True))
-    sh.rects.append((210, 30, 440, 134))
-    sh.texts.append(("GPS RECEIVER (UART)  &  BOUNDARY INDICATORS", 212, 36, 3, True))
-    sh.rects.append((210, 140, 440, 252))
-    sh.texts.append(("OBSTACLE SENSOR -- HC-SR04 + 3.3V LEVEL-SHIFT DIVIDER",
-                     212, 146, 3, True))
-    sh.rects.append((18, 262, 480, 382))
-    sh.texts.append(("DIFFERENTIAL DRIVE -- MOTOR SYSTEM (EXTERNAL BATTERY)",
-                     20, 268, 3, True))
+    # Rows are budgeted to fill the sheet.  Note that the whole content column
+    # (CONTENT_LEFT..CONTENT_RIGHT) sits left of the worksheet title block
+    # (x 473.5+), so the lower rows are free to run down to the frame.
+    sh.zone(CONTENT_LEFT, 42, 196, 200, "RASPBERRY PI 5 -- GPIO HEADER (J8)")
+    sh.zone(202, 42, 320, 200, "GPS RECEIVER (UART)")
+    sh.zone(326, 42, CONTENT_RIGHT, 200, "BOUNDARY INDICATORS")
+    sh.zone(CONTENT_LEFT, 208, CONTENT_RIGHT, 306,
+            "DIFFERENTIAL DRIVE -- BTS7960 + DRIVE MOTORS")
+    sh.zone(CONTENT_LEFT, 314, 300, 404,
+            "OBSTACLE SENSOR -- HC-SR04 + 3.3V LEVEL SHIFT")
+    sh.zone(306, 314, CONTENT_RIGHT, 404,
+            "MOTOR SUPPLY -- EXTERNAL BATTERY")
 
     # ---------------- zone A: Raspberry Pi header -------------------------- #
     J1 = sh.place("RPI5_J8_HEADER", "J1", "Raspberry Pi 5 (J8 40-pin GPIO)",
-                  106.68, 85.09,
-                  ref_off=(0, -31.75), ref_j="center",
-                  val_off=(0, -26.67), val_j="center")
+                  106.68, 129.54,
+                  ref_off=(0, -69.54), ref_j="center",
+                  val_off=(0, -61.54), val_j="center")
 
     # net attached to every pin that is actually used; None -> no-connect flag
     J1_NETS = {
@@ -387,128 +435,143 @@ def build() -> Sheet:
         if net is None:
             sh.no_connects.append((px, py))
         else:
-            sh.stub(J1, number, "L" if number % 2 else "R", 15.24, net)
+            sh.stub(J1, number, "L" if number % 2 else "R", 5.08, net)
 
-    # ---------------- zone B: GPS + indicators ----------------------------- #
-    U1 = sh.place("NEO_M8N_GPS", "U1", "NEO-M8N GPS", 269.24, 55.88,
-                  ref_off=(0, -13.97), ref_j="center",
-                  val_off=(0, -9.525), val_j="center")
-    sh.stub(U1, 1, "L", 12.7, "+5V")
-    sh.stub(U1, 2, "L", 12.7, "GND")
-    sh.stub(U1, 3, "R", 12.7, "GPIO15_RXD")   # GPS TXD -> Pi RXD (GPIO15)
-    sh.stub(U1, 4, "R", 12.7, "GPIO14_TXD")   # Pi TXD (GPIO14) -> GPS RXD
+    # ---------------- zone B: GPS + local decoupling ----------------------- #
+    U1 = sh.place("NEO_M8N_GPS", "U1", "NEO-M8N GPS", 260.35, 88.9,
+                  ref_off=(0, -30.48), ref_j="center",
+                  val_off=(0, -22.86), val_j="center")
+    sh.stub(U1, 1, "L", 5.08, "+5V")
+    sh.stub(U1, 2, "L", 5.08, "GND")
+    sh.stub(U1, 3, "R", 5.08, "GPIO15_RXD")   # GPS TXD -> Pi RXD (GPIO15)
+    sh.stub(U1, 4, "R", 5.08, "GPIO14_TXD")   # Pi TXD (GPIO14) -> GPS RXD
 
-    C1 = sh.place("C", "C1", "100nF", 240.03, 95.25,
-                  ref_off=(2.286, -2.54), ref_j="left",
-                  val_off=(2.286, 0.0), val_j="left")
-    sh.stub(C1, 1, "U", 7.62, "+5V")
-    sh.stub(C1, 2, "D", 8.89, "GND")
-    sh.texts.append(("C1: local decoupling", 246.38, 98.425, 1.4, False))
+    C1 = sh.place("C", "C1", "100nF", 215.9, 160.02,
+                  ref_off=(6.35, -3.81), ref_j="left",
+                  val_off=(6.35, 3.81), val_j="left")
+    sh.stub(C1, 1, "U", 10.16, "+5V")
+    sh.stub(C1, 2, "D", 10.16, "GND")
+    sh.texts.append(("C1: local decoupling", 240, 160.02, TXT, False))
 
-    BZ1 = sh.place("BUZZER", "BZ1", "Active Buzzer", 330.2, 60.96,
-                   ref_off=(4.445, -13.97), ref_j="center",
-                   val_off=(4.445, -9.525), val_j="center")
+    # ---------------- zone C: buzzer + status LEDs ------------------------- #
+    BZ1 = sh.place("BUZZER", "BZ1", "Buzzer", 330.2, 100.33,
+                   ref_off=(12.7, -3.81), ref_j="left",
+                   val_off=(12.7, 3.81), val_j="left")
     sh.stub(BZ1, 1, "U", 12.7, "GPIO17_BUZZER")
-    sh.stub(BZ1, 2, "D", 13.97, "GND")
+    sh.stub(BZ1, 2, "D", 12.7, "GND")
 
-    # Red / green boundary LEDs, each in series with a 220R resistor.
-    for x, rref, dref, net, colour in ((378.46, "R1", "D1", "GPIO27_LED_RED", "LED_Red"),
-                                       (419.1, "R2", "D2", "GPIO22_LED_GRN", "LED_Green")):
-        r = sh.place("R", rref, "220R", x, 55.88,
-                     ref_off=(2.286, -2.54), ref_j="left",
-                     val_off=(2.286, 0.0), val_j="left")
-        d = sh.place("LED", dref, colour, x, 68.58,
-                     ref_off=(4.445, -2.54), ref_j="left",
-                     val_off=(4.445, 0.0), val_j="left")
-        sh.stub(r, 1, "U", 10.16, net)
+    for x, rref, dref, net, colour in (
+            (375.92, "R1", "D1", "GPIO27_LED_RED", "LED_Red"),
+            (419.1, "R2", "D2", "GPIO22_LED_GRN", "LED_Green")):
+        r = sh.place("R", rref, "220R", x, 90.17,
+                     ref_off=(5.08, -3.81), ref_j="left",
+                     val_off=(5.08, 3.81), val_j="left")
+        d = sh.place("LED", dref, colour, x, 113.03,
+                     ref_off=(12.7, -3.81), ref_j="left",
+                     val_off=(12.7, 3.81), val_j="left")
+        sh.stub(r, 1, "U", 12.7, net)
         sh.wire(sh.pin(r, 2), sh.pin(d, 1))
-        sh.stub(d, 2, "D", 11.43, "GND")
+        sh.stub(d, 2, "D", 12.7, "GND")
 
-    # ---------------- zone C: HC-SR04 + level shifter ---------------------- #
-    U2 = sh.place("HC_SR04", "U2", "HC-SR04 (Front)", 269.24, 190.5,
-                  ref_off=(0, -13.97), ref_j="center",
-                  val_off=(0, -9.525), val_j="center")
-    sh.stub(U2, 1, "L", 12.7, "+5V")
-    sh.stub(U2, 2, "L", 12.7, "GND")
-    sh.stub(U2, 3, "R", 12.7, "GPIO23_TRIG")
+    # ---------------- zone D: drivers, motors, local decoupling ------------ #
+    U_L = sh.place("BTS7960", "U_L", "BTS7960 (L motor)", 100.33, 254,
+                   ref_off=(0, -29.21), ref_j="center",
+                   val_off=(0, 31.75), val_j="center")
+    U_R = sh.place("BTS7960", "U_R", "BTS7960 (R motor)", 247.65, 254,
+                   ref_off=(0, -29.21), ref_j="center",
+                   val_off=(0, 31.75), val_j="center")
+
+    for u, mref, mval, rpwm, lpwm, ren, len_ in (
+            (U_L, "M_L", "L Drive Motor", "GPIO12_L_RPWM", "GPIO13_L_LPWM",
+             "GPIO20_L_REN", "GPIO21_L_LEN"),
+            (U_R, "M_R", "R Drive Motor", "GPIO18_R_RPWM", "GPIO19_R_LPWM",
+             "GPIO16_R_REN", "GPIO26_R_LEN")):
+        sh.stub(u, 1, "L", 7.62, "+5V")
+        sh.stub(u, 2, "L", 7.62, "GND")
+        sh.stub(u, 3, "L", 7.62, rpwm)
+        sh.stub(u, 4, "L", 7.62, lpwm)
+        sh.stub(u, 5, "L", 7.62, ren)
+        sh.stub(u, 6, "L", 7.62, len_)
+        # current-sense outputs are unused on this build
+        sh.no_connects.append(sh.pin(u, 7))
+        sh.no_connects.append(sh.pin(u, 8))
+        sh.stub(u, 9, "R", 7.62, "+VMOTOR")
+        sh.stub(u, 10, "R", 7.62, "GND")
+
+        # The motor's two pins are 10.16 mm apart, exactly like the driver's
+        # M+/M-.  Centre the motor on that pair so both links are straight
+        # horizontal wires rather than diagonals.  The offset right is well
+        # clear of the driver's right-hand pin field, and the ref/value go
+        # below the circle because above it is where the driver's B+/B- net
+        # labels sit.
+        m = sh.place("DC_MOTOR", mref, mval, u[3] + 52.07, 261.62,
+                     ref_off=(0, 17.78), ref_j="center",
+                     val_off=(0, 27.94), val_j="center")
+        sh.wire(sh.pin(u, 11), sh.pin(m, 1))
+        sh.wire(sh.pin(u, 12), sh.pin(m, 2))
+
+    for cref, cx in (("C3", 340.36), ("C4", 381.0)):
+        c = sh.place("C", cref, "100nF", cx, 236.22,
+                     ref_off=(6.35, -3.81), ref_j="left",
+                     val_off=(6.35, 3.81), val_j="left")
+        sh.stub(c, 1, "U", 10.16, "+5V")
+        sh.stub(c, 2, "D", 10.16, "GND")
+
+    # ---------------- zone E: HC-SR04 + level shifter ---------------------- #
+    U2 = sh.place("HC_SR04", "U2", "HC-SR04 (Front)", 107.95, 350.52,
+                  ref_off=(0, -24.13), ref_j="center",
+                  val_off=(0, -16.51), val_j="center")
+    sh.stub(U2, 1, "L", 5.08, "+5V")
+    sh.stub(U2, 2, "L", 5.08, "GND")
+    sh.stub(U2, 3, "R", 5.08, "GPIO23_TRIG")
 
     # ECHO (5 V) -> R3 1k -> node -> {GPIO24_ECHO, R4 2k -> GND}
     # The node sits at 5 V * 2k/(1k+2k) = 3.33 V, safe for a Pi 5 GPIO.
+    # R3's top pin is placed level with ECHO so the link is one orthogonal
+    # horizontal wire, not a diagonal.
     e = sh.pin(U2, 4)
-    r3 = sh.place("R", "R3", "1k", 320.04, 199.39,
-                  ref_off=(2.286, -1.27), ref_j="left",
-                  val_off=(2.286, 1.27), val_j="left")
-    r4 = sh.place("R", "R4", "2k", 320.04, 214.63,
-                  ref_off=(2.286, -1.27), ref_j="left",
-                  val_off=(2.286, 1.27), val_j="left")
+    # Ref/value go to the *left* of R3/R4: the right-hand side is where the
+    # GPIO24_ECHO label sits, and at this text size the two would touch.
+    r3 = sh.place("R", "R3", "1k", 200.66, 363.22,
+                  ref_off=(-5.08, -3.81), ref_j="right",
+                  val_off=(-5.08, 3.81), val_j="right")
+    r4 = sh.place("R", "R4", "2k", 200.66, 383.54,
+                  ref_off=(-5.08, -3.81), ref_j="right",
+                  val_off=(-5.08, 3.81), val_j="right")
     node = sh.pin(r3, 2)
     sh.wire(e, sh.pin(r3, 1))
     sh.junctions.append(node)
     sh.stub(r3, 2, "R", 15.24, "GPIO24_ECHO")
     sh.wire(node, sh.pin(r4, 1))
-    sh.stub(r4, 2, "D", 10.16, "GND")
-
-    C2 = sh.place("C", "C2", "100nF", 240.03, 224.79,
-                  ref_off=(2.286, -2.54), ref_j="left",
-                  val_off=(2.286, 0.0), val_j="left")
-    sh.stub(C2, 1, "U", 11.43, "+5V")
-    sh.stub(C2, 2, "D", 8.89, "GND")
+    sh.stub(r4, 2, "D", 5.08, "GND")
     sh.texts.append(("R3/R4 divider: 5V x 2k/(1k+2k) = 3.33V (matches WIRING.md)",
-                     218.44, 241.3, 1.4, False))
+                     30, 372, TXT, False))
 
-    # ---------------- zone D: motor drive + battery ------------------------ #
-    motors = (
-        ("U_L", "L motor", 299.72, "GPIO12_L_RPWM", "GPIO13_L_LPWM",
-         "GPIO20_L_REN", "GPIO21_L_LEN", "M_L", "L Drive Motor",
-         "C3", 300.99),
-        ("U_R", "R motor", 355.6, "GPIO18_R_RPWM", "GPIO19_R_LPWM",
-         "GPIO16_R_REN", "GPIO26_R_LEN", "M_R", "R Drive Motor",
-         "C4", 356.87),
-    )
-    for (uref, ulabel, uy, rpwm, lpwm, ren, len_, mref, mval, cref, cy) in motors:
-        u = sh.place("BTS7960", uref, f"BTS7960 ({ulabel})", 85.09, uy,
-                     ref_off=(0, -13.97), ref_j="center",
-                     val_off=(0, 16.51), val_j="center")
-        sh.stub(u, 1, "L", 15.24, "+5V")
-        sh.stub(u, 2, "L", 15.24, "GND")
-        sh.stub(u, 3, "L", 15.24, rpwm)
-        sh.stub(u, 4, "L", 15.24, lpwm)
-        sh.stub(u, 5, "L", 15.24, ren)
-        sh.stub(u, 6, "L", 15.24, len_)
-        # current-sense outputs are unused on this build
-        sh.no_connects.append(sh.pin(u, 7))
-        sh.no_connects.append(sh.pin(u, 8))
-        sh.stub(u, 9, "R", 15.24, "+VMOTOR")
-        sh.stub(u, 10, "R", 15.24, "GND")
+    C2 = sh.place("C", "C2", "100nF", 255.27, 350.52,
+                  ref_off=(6.35, -3.81), ref_j="left",
+                  val_off=(6.35, 3.81), val_j="left")
+    sh.stub(C2, 1, "U", 10.16, "+5V")
+    sh.stub(C2, 2, "D", 10.16, "GND")
 
-        m = sh.place("DC_MOTOR", mref, mval, 149.86, cy + 2.54,
-                     ref_off=(0, -10.16), ref_j="center",
-                     val_off=(0, 10.16), val_j="center")
-        sh.wire(sh.pin(u, 11), sh.pin(m, 1))
-        sh.wire(sh.pin(u, 12), sh.pin(m, 2))
-
-        c = sh.place("C", cref, "100nF", 205.74, cy,
-                     ref_off=(2.286, -2.54), ref_j="left",
-                     val_off=(2.286, 0.0), val_j="left")
-        sh.stub(c, 1, "U", 7.62, "+5V")
-        sh.stub(c, 2, "D", 7.62, "GND")
-
-    # Fused battery rail.  B+ -> F1 -> +VMOTOR (feeds both drivers); the
-    # label must be on the far side of the fuse, never bridging it.
+    # ---------------- zone F: fused battery rail --------------------------- #
+    # B+ -> F1 -> +VMOTOR (feeds both drivers).  The label must be on the far
+    # side of the fuse, never bridging it.
     BT1 = sh.place("BATTERY_PACK", "BT1", "External 12-24V Li-ion Pack",
-                   360.68, 320.04,
-                   ref_off=(8.255, -3.81), ref_j="left",
-                   val_off=(8.255, 3.81), val_j="left")
-    F1 = sh.place("FUSE", "F1", "10A", 365.76, 299.72,
-                  ref_off=(0, -4.318), ref_j="center",
-                  val_off=(0, 5.08), val_j="center")
+                   335.28, 368.3,
+                   ref_off=(12.7, -6.35), ref_j="left",
+                   val_off=(12.7, 6.35), val_j="left")
+    # F1 sits directly above the pack, on the same x as its + pin, so the
+    # battery-to-fuse link is one vertical wire.
+    F1 = sh.place("FUSE", "F1", "10A", 345.44, 340.36,
+                  ref_off=(0, -7.62), ref_j="center",
+                  val_off=(0, 8.89), val_j="center")
     sh.wire(sh.pin(BT1, 1), sh.pin(F1, 1))
-    sh.stub(F1, 2, "R", 11.43, "+VMOTOR")
-    sh.stub(BT1, 2, "D", 11.43, "GND")
+    sh.stub(F1, 2, "R", 10.16, "+VMOTOR")
+    sh.stub(BT1, 2, "D", 10.16, "GND")
 
-    sh.texts.append(("Battery NEGATIVE ties to the common Pi GND.", 225, 364, 1.6, False))
-    sh.texts.append(("Battery POSITIVE feeds BOTH BTS7960 modules through F1.", 225, 370, 1.6, False))
-    sh.texts.append(("NEVER power the motors from the Raspberry Pi 5V rail.", 225, 376, 1.6, False))
+    sh.texts.append(("Battery NEGATIVE ties to the common Pi GND.", 30, 380, TXT, False))
+    sh.texts.append(("Battery POSITIVE feeds both BTS7960", 30, 388, TXT, False))
+    sh.texts.append(("drivers through F1 (10A).", 30, 396, TXT, False))
 
     return sh
 
@@ -522,12 +585,12 @@ def emit_instance(sym, ref, value, x, y, ref_off, ref_j, val_off, val_j) -> str:
     out.append(f'  (uuid "{uid("inst", ref)}")')
     out.append(f'  (property "Reference" "{ref}" '
                f'(at {xs(x + ref_off[0])} {xs(y + ref_off[1])} 0) '
-               f"(effects (font (size 1.27 1.27)) (justify {ref_j})))")
+               f"(effects (font (size {xs(TXT)} {xs(TXT)})) (justify {ref_j})))")
     out.append(f'  (property "Value" "{value}" '
                f'(at {xs(x + val_off[0])} {xs(y + val_off[1])} 0) '
-               f"(effects (font (size 1.27 1.27)) (justify {val_j})))")
+               f"(effects (font (size {xs(TXT)} {xs(TXT)})) (justify {val_j})))")
     out.append(f'  (property "Footprint" "" (at {xs(x)} {xs(y)} 0) '
-               f"(effects (font (size 1.27 1.27)) hide))")
+               f"(effects (font (size {xs(TXT)} {xs(TXT)})) hide))")
     for p in sym.pins:
         out.append(f'  (pin "{p.number}" (uuid "{uid("pin", ref, p.number)}"))')
     out.append("  (instances")
@@ -546,16 +609,17 @@ def emit(sh: Sheet) -> str:
     L.append('  (generator "eeschema")')
     L.append('  (generator_version "8.0")')
     L.append(f'  (uuid "{ROOT_UUID}")')
-    L.append('  (paper "A2")')
+    L.append(f'  (paper "{PAGE}")')
     L.append("  (title_block")
-    L.append('    (title "GEOFENCE -- Autonomous Smart Lawn Mower -- Hardware Interconnect")')
+    # Keep every field inside the ~103 mm title-block text column: an earlier
+    # revision overflowed its frame with a 62-character title.
+    L.append('    (title "GEOFENCE -- Lawn Mower Hardware")')
     L.append('    (date "2026-09-16")')
     L.append('    (rev "A")')
     L.append('    (company "al-chris/GEOFENCE")')
-    L.append('    (comment 1 "Raspberry Pi 5 + BTS7960 differential drive + HC-SR04'
-             ' + NEO-M8N GPS + geofence indicators")')
-    L.append('    (comment 2 "See WIRING.md and setup.md in the repository for the'
-             ' full build guide")')
+    L.append('    (comment 1 "Raspberry Pi 5 + BTS7960 drive + HC-SR04 + NEO-M8N GPS")')
+    L.append('    (comment 2 "Wiring, pin map and build steps: see WIRING.md")')
+    L.append('    (comment 3 "Text sized for A4 (50 percent) print: 3.0mm source")')
     L.append("  )")
     L.append("  (lib_symbols")
     for name in SYMS:
@@ -587,7 +651,7 @@ def emit(sh: Sheet) -> str:
                  f'(uuid "{uid("nc", str((x, y)))}"))')
     for text, x, y, justify in sh.labels:
         L.append(f'(label "{text}" (at {xs(x)} {xs(y)} 0) '
-                 f"(effects (font (size 1.27 1.27)) (justify {justify})) "
+                 f"(effects (font (size {xs(TXT)} {xs(TXT)})) (justify {justify})) "
                  f'(uuid "{uid("label", text, str((x, y)))}"))')
 
     L.append("  (sheet_instances")
