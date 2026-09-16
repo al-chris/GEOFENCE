@@ -455,14 +455,55 @@ Wire the LEDs and buzzer as follows (based on `geofence_node.py`):
 | Red LED | GPIO 27 |
 | Green LED | GPIO 22 |
 
-### Running on Physical Hardware
+### BTS7960 Motor Driver & HC-SR04 Ultrasonic Wiring
 
-Start the node (no `sudo` required if GPIO permissions are configured):
+The system supports differential drive control using BTS7960 drivers and obstacle detection using HC-SR04 ultrasonic distance sensors. For complete schematics, voltage dividers, and pinouts, see [WIRING.md](file:///C:/Users/PC/Documents/PROJECTS/GEOFENCE/WIRING.md) and [GPIO-Pinout-Diagram.png](file:///C:/Users/PC/Documents/PROJECTS/GEOFENCE/GPIO-Pinout-Diagram.png).
+
+| Component | BCM GPIO | Notes |
+|---|---|---|
+| Left Motor RPWM | GPIO 12 | Forward PWM |
+| Left Motor LPWM | GPIO 13 | Reverse PWM |
+| Left Motor R_EN | GPIO 20 | Forward enable |
+| Left Motor L_EN | GPIO 21 | Reverse enable |
+| Right Motor RPWM | GPIO 18 | Forward PWM |
+| Right Motor LPWM | GPIO 19 | Reverse PWM |
+| Right Motor R_EN | GPIO 16 | Forward enable |
+| Right Motor L_EN | GPIO 26 | Reverse enable |
+| Front Ultrasonic TRIG | GPIO 23 | 10µs trigger pulse |
+| Front Ultrasonic ECHO | GPIO 24 | **Via 1kΩ/2kΩ voltage divider to 3.3V** |
+
+### Rapid Hardware Testing (Standalone)
+
+Before launching ROS 2 or running full automation, test your motor and sensor wiring with the standalone utility:
 
 ```bash
-sudo chown root:gpio /dev/gpiomem
-sudo chmod 660 /dev/gpiomem
-ros2 run virtual_geofence geofence_node --ros-args --params-file src/virtual_geofence/config/boundary.yaml
+# 1. Read sensors only (motors disabled - safe test)
+python3 scripts/motor_ultrasonic_control.py --mode status
+
+# 2. Ramp motors forward and reverse (keep wheels off ground on blocks)
+python3 scripts/motor_ultrasonic_control.py --mode ramp
+
+# 3. Obstacle avoidance reactive test
+python3 scripts/motor_ultrasonic_control.py --mode obstacle --speed 40 --stop-cm 20
+```
+
+### Running on Physical Hardware (Full ROS 2 Stack)
+
+Start the entire hardware system including GPS driver, geofence monitor, and motor controller:
+
+```bash
+source source_all.bash
+ros2 launch virtual_geofence geofence_launch.py
+```
+
+This launches:
+1. `nmea_serial_driver` on `/dev/ttyAMA0` for NEO-M8N GPS.
+2. `geofence_node` to enforce the polygon boundary and publish zero velocity to `/cmd_vel` upon breach.
+3. `motor_controller_node` to translate `/cmd_vel` into differential PWM for the BTS7960 drivers and stop upon obstacle detection.
+
+To launch only the motor controller node independently:
+```bash
+ros2 launch virtual_geofence motor_control_launch.py
 ```
 
 ---

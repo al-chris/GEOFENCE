@@ -1,0 +1,13 @@
+# Hardware controller parameters for Raspberry Pi 5 (BTS7960 motor driver + HC-SR04 ultrasonic sensors)
+motor_controller_node:
+  ros__parameters:
+    gpio_chip: 4                     # Raspberry Pi 5 rp1 GPIO chip
+    pwm_freq: 1000                   # PWM frequency in Hz
+    track_width: 0.62                # Distance between left and right wheels (meters)
+    max_linear_speed: 1.0            # Max linear speed (m/s) mapped to 100% PWM
+    max_angular_speed: 2.0           # Max angular speed (rad/s) mapped to 100% PWM
+    obstacle_stop_cm: 20.0           # Obstacle distance threshold for safety brake (cm)
+    obstacle_avoidance_enabled: true # Enable active obstacle avoidance / stop
+    cmd_vel_timeout: 0.5             # Stop motors if no cmd_vel received within this duration (seconds)
+    mock_hardware: false             # Set true for desktop simulation / dry-run testing
+    sensor_poll_rate_hz: 10.0        # Rate for polling ultrasonic sensors

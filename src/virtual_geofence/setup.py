@@ -29,6 +29,8 @@ setup(
         'console_scripts': [
             'geofence_node = virtual_geofence.geofence_node:main',
             'mock_gps_publisher = virtual_geofence.mock_gps_publisher:main',
+            'motor_controller_node = virtual_geofence.motor_controller_node:main',
+            'hardware_control = virtual_geofence.motor_ultrasonic_control:main',
         ],
     },
 )
