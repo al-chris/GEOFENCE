@@ -60,6 +60,7 @@ A4, not tiled.
 | `generate_schematic.py` | Declarative generator. Edit this, not the `.kicad_sch`. |
 | `verify_schematic.py` | Independent checker + netlist extractor. |
 | `check_pin_convention.py` | Confirms the KiCad placement convention (see below). Needs network. |
+| `geofence_lawnmower.png` | Rendered snapshot of the sheet, for dropping into documents. 2804 × 1988 px (~240 dpi at A4). A snapshot, not a source of truth — regenerate it after any schematic change. |
 | `geofence_lawnmower.kicad_pro` | Project file, for opening natively in KiCad 8/9. |
 
 ```bash
@@ -134,6 +135,30 @@ has **not** been through `kicad-cli sch erc`. `verify_schematic.py` covers
 connectivity, geometry and the netlist, but an ERC run in KiCad is still worth
 doing before fabrication.
 
+### Exporting the PNG snapshot
+
+`geofence_lawnmower.png` was rasterised from kicanvas's own canvas, not from a
+KiCad plot — there is no KiCad here. Note that kicanvas's *download* button
+exports the `.kicad_sch` source, not a picture, so the image comes from the
+canvas element instead:
+
+1. Open the sheet in kicanvas and enlarge the browser window — kicanvas sizes
+   its canvas to the viewport, so the window size sets the exported resolution
+   (a 3600 × 2500 window yields 2804 × 1988 px, i.e. ~240 dpi across A4).
+2. Zoom to page, then read the sheet back off the viewer's canvas:
+
+```js
+const c = findDeep(document, 'canvas').find(x => x.width > 100);
+const out = document.createElement('canvas');
+out.width = c.width; out.height = c.height;
+out.getContext('2d').drawImage(c, 0, 0);   // crop to the 594 x 420 mm page
+out.toDataURL('image/png');                // save this out and base64-decode
+```
+
+3. Base64-decode the data URL to `geofence_lawnmower.png`.
+
+The image is a snapshot: re-export it whenever the schematic changes.
+
 ### Verification performed on this revision
 
 1. **Parsed-model connectivity** — every wire endpoint terminates on a real
@@ -149,7 +174,6 @@ doing before fabrication.
 
 To re-do (3) quickly, kicanvas's camera is reachable from a browser console via
 the viewer's shadow DOM:
-
 ```js
 function findDeep(root, sel) {
   const found = [];
