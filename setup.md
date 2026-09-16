@@ -139,55 +139,127 @@ You should see clean NMEA sentences like `$GPGGA,...` and `$GPRMC,...` streaming
 
 ---
 
-## Part 3: GPIO Setup & Verification
+## Part 3: GPIO Setup with lgpio
 
-Install the GPIO tools:
+Every GPIO peripheral in this project — BTS7960 motor drivers, the HC-SR04 ultrasonic sensor, the buzzer and the status LEDs — is driven through **`lgpio`**, which talks to `/dev/gpiochip*` instead of the legacy `/dev/gpiomem`:
+
+- **No hardware PWM overlay is required.** Motor PWM is generated in software by `lgpio.tx_pwm()` at 1000 Hz, so there is no `dtoverlay=pwm` line and no pin muxing to worry about.
+- **No `RPi.GPIO` dependency.** `RPi.GPIO` does not officially support the Pi 5's RP1 south-bridge chip; `geofence_node.py`, `hardware_controller.py` and `motor_controller_node.py` all use `lgpio`.
+- Only the **gpiochip device permissions** (Step 2) need to be configured.
+
+### Step 1: Identify the GPIO chip
+
+The Pi 5 exposes the 40-pin header through the RP1 chip. Install the diagnostic tools and look for `pinctrl-rp1`:
 
 ```bash
 sudo apt install -y gpiod
+gpiodetect
+# Expected (partial):
+# gpiochip4 [pinctrl-rp1] (54 lines)
 ```
 
-Test that GPIO is working by toggling a pin (this sets GPIO 27 high — you can connect an LED to verify):
+On this Ubuntu 24.04 / Raspberry Pi 5 setup the header is **`gpiochip4`**, which is why `gpio_chip: 4` is the default in `config/hardware_params.yaml`. If your board reports a different number, override it at runtime instead of editing code:
 
 ```bash
-gpioset gpiochip0 27=1
+# One-off override for a node
+ros2 run virtual_geofence geofence_node --ros-args -p gpio_chip:=0
+
+# Persistent override for the motor controller: edit gpio_chip in
+# src/virtual_geofence/config/hardware_params.yaml
 ```
 
-If you get a permission denied error, add your user to the `gpio` group and reboot:
+### Step 2: GPIO permissions
+
+The nodes use `lgpio` to access `/dev/gpiochip*`. Without the correct permissions you will see one of:
+
+```text
+RuntimeError: Failed to open gpiochip
+```
+
+```text
+PermissionError: [Errno 13] Permission denied: '/dev/gpiochip4'
+```
+
+Do **not** run the nodes as root. Configure permissions properly instead.
+
+**Create the `gpio` group and add your user:**
 
 ```bash
+sudo groupadd -f gpio
 sudo usermod -aG gpio $USER
-sudo reboot
 ```
 
-If `/dev/gpiomem` is still root-only, you can temporarily give the `gpio` group access:
-
-```bash
-sudo chown root:gpio /dev/gpiomem
-sudo chmod 660 /dev/gpiomem
-```
-
-### Make this persistent (recommended)
-
-The device node is recreated at boot; use a udev rule so `/dev/gpiomem` keeps the `gpio` group and correct permissions:
+**Create a persistent udev rule.** GPIO device nodes are recreated at every boot, so permissions set with `chmod` do not persist:
 
 ```bash
 sudo tee /etc/udev/rules.d/60-gpiomem.rules > /dev/null <<'EOF'
-KERNEL=="gpiomem", SUBSYSTEM=="misc", GROUP="gpio", MODE="0660"
+KERNEL=="gpiomem*", GROUP="gpio", MODE="0660"
+KERNEL=="gpiochip*", GROUP="gpio", MODE="0660"
 EOF
-
-# Reload udev rules and apply immediately
-sudo udevadm control --reload-rules
-sudo udevadm trigger --name-match=gpiomem
-
-# Verify permissions
-ls -l /dev/gpiomem
-
-# Make sure the user running the node is in the gpio group (re-login required)
-sudo usermod -aG gpio $USER
 ```
 
-If you run the node via a `systemd` service, add `SupplementaryGroups=gpio` to the `[Service]` section of the unit so the service inherits the group (then `sudo systemctl daemon-reload` and restart the service).
+**Reload the rules and reboot.** Group membership changes only apply to new login sessions:
+
+```bash
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+sudo reboot
+```
+
+**Verify the permissions:**
+
+```bash
+ls -l /dev/gpiochip*
+groups
+```
+
+Expected output:
+
+```text
+crw-rw---- 1 root gpio ... /dev/gpiochip4
+...
+dialout gpio
+```
+
+### Step 3: Smoke-test lgpio (blink the red LED)
+
+With the red LED on GPIO 27 (physical pin 13) in series with 220 Ω to GND:
+
+```bash
+cd ~/GEOFENCE
+source source_all.bash
+python3 - <<'EOF'
+import time
+import lgpio
+
+h = lgpio.gpiochip_open(4)          # gpiochip4 on the Pi 5 40-pin header
+lgpio.gpio_claim_output(h, 27, 0)   # pins MUST be claimed before use
+
+for _ in range(4):
+    lgpio.gpio_write(h, 27, 1)
+    time.sleep(0.25)
+    lgpio.gpio_write(h, 27, 0)
+    time.sleep(0.25)
+
+lgpio.gpio_free(h, 27)              # always release pins...
+lgpio.gpiochip_close(h)             # ...then close the chip
+print("lgpio OK - red LED blinked 4 times")
+EOF
+```
+
+If that works, `lgpio` is installed correctly and the `gpio` group permissions are right.
+
+> **Note:** `gpioset` / `gpioget` hold a claim on the pins for as long as they run, which conflicts with a running node. Stop the nodes before using the `gpiod` command-line tools, and prefer the `lgpio` snippet above for hardware checks.
+
+### Step 4: systemd services
+
+If you run the nodes via a `systemd` service (see Part 8), the service does not inherit your shell environment or group memberships. Add `SupplementaryGroups=gpio` to the `[Service]` section of the unit so the process can open `/dev/gpiochip*` (then `sudo systemctl daemon-reload` and restart the service):
+
+```ini
+[Service]
+User=ubuntu
+SupplementaryGroups=gpio
+```
 
 ---
 
@@ -447,7 +519,7 @@ sudo fuser -v /dev/ttyAMA0 || true
 
 ### LED & Buzzer Wiring
 
-Wire the LEDs and buzzer as follows (based on `geofence_node.py`):
+Wire the LEDs and buzzer as follows (these are the `geofence_node.py` lgpio defaults, and can be changed with the `buzzer_pin`, `red_led_pin` and `green_led_pin` ROS parameters):
 
 | Component | GPIO |
 |-----------|------|
@@ -474,18 +546,37 @@ The system supports differential drive control using BTS7960 drivers and obstacl
 
 ### Rapid Hardware Testing (Standalone)
 
-Before launching ROS 2 or running full automation, test your motor and sensor wiring with the standalone utility:
+Before launching ROS 2 or running full automation, test each subsystem in isolation. These scripts talk to the GPIO header directly through `lgpio` (they do not need ROS running):
 
 ```bash
-# 1. Read sensors only (motors disabled - safe test)
+source source_all.bash
+
+# 1. Buzzer + status LEDs (GPIO 17 / 27 / 22) - easiest first check
+python3 scripts/test_indicators.py
+
+# 2. Front HC-SR04 ultrasonic sensor (TRIG GPIO 23, ECHO GPIO 24)
+python3 scripts/test_ultrasonic.py
+
+# 3. BTS7960 motors - ramps forward then reverse (put the robot on blocks!)
+python3 scripts/test_motors.py
+# ...one side only:
+python3 scripts/test_motors.py --motor left
+```
+
+Once the individual parts work, use the combined motor + ultrasonic utility:
+
+```bash
+# Read sensors only (motors disabled - safe test)
 python3 scripts/motor_ultrasonic_control.py --mode status
 
-# 2. Ramp motors forward and reverse (keep wheels off ground on blocks)
+# Ramp motors forward and reverse (keep wheels off ground on blocks)
 python3 scripts/motor_ultrasonic_control.py --mode ramp
 
-# 3. Obstacle avoidance reactive test
+# Obstacle avoidance reactive test
 python3 scripts/motor_ultrasonic_control.py --mode obstacle --speed 40 --stop-cm 20
 ```
+
+> **Troubleshooting:** If a script fails with `RuntimeError: Failed to open gpiochip` or `PermissionError: ... '/dev/gpiochip4'`, go back to Part 3 (Step 2) and fix the `gpio` group / udev permissions. If it fails because the chip number is different, pass `--chip <n>` (run `gpiodetect` to find it).
 
 ### Running on Physical Hardware (Full ROS 2 Stack)
 
@@ -529,10 +620,11 @@ sudo journalctl -u geofence.service -f
 
 Important notes:
 - Ensure the `User` and `WorkingDirectory` fields in the unit are correct for your system.
-- The unit already includes `SupplementaryGroups=gpio` so the service process inherits access to `/dev/gpiomem` when the user is in the `gpio` group. If you change the user, make sure that account is a member of `gpio`.
+- GPIO is accessed through `lgpio`, which opens `/dev/gpiochip*` rather than `/dev/gpiomem`. The unit already includes `SupplementaryGroups=gpio` so the service process inherits access to the chip devices when the user is in the `gpio` group (see Part 3). If you change the user, make sure that account is a member of `gpio`.
+- If it is not already set, pass the GPIO chip number to the node in the unit's `ExecStart` (`-p gpio_chip:=4` for the Pi 5 header) and check `gpiodetect` if the chip number differs on your board.
 - If you prefer the service to run under `root` (not recommended), remove `User`/`Group` and drop `SupplementaryGroups=gpio` accordingly.
 
-After enabling the service, verify GPIO access with `ls -l /dev/gpiomem` and that the node logs show the Kalman filter initialising on the first GPS fix.
+After enabling the service, verify GPIO access with `ls -l /dev/gpiochip*` and that the node logs show `lgpio ready on gpiochip4` plus the Kalman filter initialising on the first GPS fix.
 
 ---
 

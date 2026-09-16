@@ -10,9 +10,19 @@ from shapely.geometry import Point, Polygon
 from filterpy.kalman import KalmanFilter
 
 try:
-    import RPi.GPIO as GPIO
-except Exception:
-    GPIO = None
+    import lgpio
+    LGPIO_AVAILABLE = True
+except ImportError:
+    lgpio = None
+    LGPIO_AVAILABLE = False
+
+
+# Default GPIO configuration (Raspberry Pi 5: the 40-pin header lives on the
+# RP1 chip, which is gpiochip4 on Ubuntu Server 24.04 — verify with `gpiodetect`).
+DEFAULT_GPIO_CHIP = 4
+DEFAULT_BUZZER_PIN = 17      # BCM 17 (physical pin 11)
+DEFAULT_RED_LED_PIN = 27     # BCM 27 (physical pin 13)
+DEFAULT_GREEN_LED_PIN = 22   # BCM 22 (physical pin 15)
 
 
 class GeoFenceNode(Node):
@@ -23,6 +33,10 @@ class GeoFenceNode(Node):
         self.declare_parameter('boundary_coords', [0.0])
         self.declare_parameter('kalman_process_noise', 0.01)
         self.declare_parameter('kalman_measurement_noise', 2.5)
+        self.declare_parameter('gpio_chip', DEFAULT_GPIO_CHIP)
+        self.declare_parameter('buzzer_pin', DEFAULT_BUZZER_PIN)
+        self.declare_parameter('red_led_pin', DEFAULT_RED_LED_PIN)
+        self.declare_parameter('green_led_pin', DEFAULT_GREEN_LED_PIN)
 
         raw = self.get_parameter('boundary_coords').value
 
@@ -55,23 +69,37 @@ class GeoFenceNode(Node):
         self.boundary = Polygon(coords)
         self.get_logger().info(f'Boundary loaded with {len(coords)} vertices.')
 
-        # GPIO setup (optional on non-Pi platforms)
+        # GPIO setup (lgpio; optional on non-Pi platforms)
+        # The buzzer and LEDs are plain digital outputs, so no PWM is needed.
         self._gpio_ready = False
-        self.buzzer_pin = 17
-        self.red_led = 27
-        self.green_led = 22
-        if GPIO is not None:
+        self._gpio = None
+        self.gpio_chip = int(self.get_parameter('gpio_chip').value)
+        self.buzzer_pin = int(self.get_parameter('buzzer_pin').value)
+        self.red_led = int(self.get_parameter('red_led_pin').value)
+        self.green_led = int(self.get_parameter('green_led_pin').value)
+        if LGPIO_AVAILABLE:
             try:
-                GPIO.setmode(GPIO.BCM)
-                GPIO.setup(self.buzzer_pin, GPIO.OUT, initial=GPIO.LOW)
-                GPIO.setup(self.red_led, GPIO.OUT, initial=GPIO.LOW)
-                # Do not assert "inside" at startup — wait for first GPS fix
-                GPIO.setup(self.green_led, GPIO.OUT, initial=GPIO.LOW)
+                self._gpio = lgpio.gpiochip_open(self.gpio_chip)
+                # You MUST claim every pin as an output before using it in lgpio.
+                # All pins start LOW: do not assert "inside" at startup — wait
+                # for the first GPS fix.
+                for pin in (self.buzzer_pin, self.red_led, self.green_led):
+                    lgpio.gpio_claim_output(self._gpio, pin, 0)
                 self._gpio_ready = True
+                self.get_logger().info(
+                    f'lgpio ready on gpiochip{self.gpio_chip} — '
+                    f'buzzer GPIO{self.buzzer_pin}, '
+                    f'red LED GPIO{self.red_led}, '
+                    f'green LED GPIO{self.green_led}'
+                )
             except Exception as e:
-                self.get_logger().error(f'GPIO init failed: {e}. Running without GPIO.')
+                self.get_logger().error(
+                    f'GPIO init failed: {e}. Running without GPIO. '
+                    f'Run "gpiodetect" to verify the gpiochip number.'
+                )
+                self._close_gpio()
         else:
-            self.get_logger().info('RPi.GPIO not available — running without GPIO.')
+            self.get_logger().info('lgpio not available — running without GPIO.')
 
         # Kalman filter (state: lat, lon, lat_vel, lon_vel)
         q = self.get_parameter('kalman_process_noise').value
@@ -180,14 +208,31 @@ class GeoFenceNode(Node):
                 )
 
     def _update_gpio(self, inside: bool):
-        if not self._gpio_ready:
+        if not self._gpio_ready or self._gpio is None:
             return
         try:
-            GPIO.output(self.green_led, GPIO.HIGH if inside else GPIO.LOW)
-            GPIO.output(self.red_led, GPIO.LOW if inside else GPIO.HIGH)
-            GPIO.output(self.buzzer_pin, GPIO.LOW if inside else GPIO.HIGH)
+            lgpio.gpio_write(self._gpio, self.green_led, 1 if inside else 0)
+            lgpio.gpio_write(self._gpio, self.red_led, 0 if inside else 1)
+            lgpio.gpio_write(self._gpio, self.buzzer_pin, 0 if inside else 1)
         except Exception as e:
             self.get_logger().error(f'GPIO write error: {e}')
+
+    def _close_gpio(self):
+        """Drive the indicators off, release the claimed pins and close the chip."""
+        if self._gpio is not None:
+            for pin in (self.buzzer_pin, self.red_led, self.green_led):
+                try:
+                    lgpio.gpio_write(self._gpio, pin, 0)
+                    lgpio.gpio_free(self._gpio, pin)
+                except Exception:
+                    # Pin was never claimed (failed init) — safe to ignore.
+                    pass
+            try:
+                lgpio.gpiochip_close(self._gpio)
+            except Exception:
+                pass
+        self._gpio = None
+        self._gpio_ready = False
 
     def publish_stop(self):
         msg = Twist()
@@ -195,11 +240,7 @@ class GeoFenceNode(Node):
         self.get_logger().info('Stop command published to /cmd_vel')
 
     def destroy_node(self):
-        if self._gpio_ready:
-            try:
-                GPIO.cleanup()
-            except Exception:
-                pass
+        self._close_gpio()
         super().destroy_node()
 
 

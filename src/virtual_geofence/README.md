@@ -4,11 +4,13 @@ Virtual geo-fencing ROS 2 package for an autonomous lawn mower. Implements:
 
 - GPS Kalman filtering
 - Boundary (polygon) check using Shapely
-- GPIO indicators (buzzer / LEDs) on Raspberry Pi
+- GPIO indicators (buzzer / LEDs) on Raspberry Pi using `lgpio` (Raspberry Pi 5 compatible)
 - Publishes zero `Twist` to `/cmd_vel` when outside boundary
 - Desktop mock GPS publisher for testing
 
 See `config/boundary.yaml` for an example boundary and Kalman parameters.
+
+Standalone hardware bring-up scripts live in `scripts/`: `test_indicators.py` (buzzer + LEDs), `test_ultrasonic.py` (HC-SR04) and `test_motors.py` (BTS7960). See section "Rapid Hardware Testing" in `setup.md`.
 
 ## Manual Keyboard Control
 

@@ -96,6 +96,26 @@ GND    ●───────────────────────�
 
 ## 5. Testing & Operation
 
+All GPIO access uses `lgpio` (Raspberry Pi 5 compatible — `RPi.GPIO` does not support the RP1 chip). Run everything from the project root after `source source_all.bash`, and add `--chip <n>` if your board's GPIO header is not on `gpiochip4` (check with `gpiodetect`).
+
+### Step 0: Subsystem Bring-Up Tests
+
+Verify each peripheral on its own before running the combined utility:
+
+```bash
+source source_all.bash
+
+# Indicator LEDs and buzzer (GPIO 17 / 27 / 22)
+python3 scripts/test_indicators.py
+
+# Front HC-SR04 ultrasonic sensor (TRIG GPIO 23, ECHO GPIO 24)
+python3 scripts/test_ultrasonic.py
+
+# BTS7960 motors — ramps forward then reverse (put the robot on blocks!)
+python3 scripts/test_motors.py
+python3 scripts/test_motors.py --motor left     # one side only
+```
+
 ### Step 1: Safe Sensor Verification (Motors Disconnected)
 With the motor battery pack disconnected:
 ```bash
