@@ -32,3 +32,5 @@ compile_commands.json
 
 /geofence_spec.docx
 /geofence_spec.md
+
+.agents/
