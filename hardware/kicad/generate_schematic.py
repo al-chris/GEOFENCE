@@ -79,7 +79,7 @@ TXT_SUB = 3.0      # sheet subtitle
 
 # Every zone shares these outer edges so the drawing looks aligned, not ragged.
 CONTENT_LEFT = 18.0
-CONTENT_RIGHT = 470.0
+CONTENT_RIGHT = 574.0
 
 
 # --------------------------------------------------------------------------- #
@@ -398,22 +398,23 @@ def build() -> Sheet:
                      " GPS boundary enforcement, ultrasonic obstacle avoidance",
                      CONTENT_LEFT, 34, TXT_SUB, False))
 
-    # Rows are budgeted to fill the sheet.  Note that the whole content column
-    # (CONTENT_LEFT..CONTENT_RIGHT) sits left of the worksheet title block
-    # (x 473.5+), so the lower rows are free to run down to the frame.
-    sh.zone(CONTENT_LEFT, 42, 196, 200, "RASPBERRY PI 5 -- GPIO HEADER (J8)")
-    sh.zone(202, 42, 320, 200, "GPS RECEIVER (UART)")
-    sh.zone(326, 42, CONTENT_RIGHT, 200, "BOUNDARY INDICATORS")
-    sh.zone(CONTENT_LEFT, 208, CONTENT_RIGHT, 306,
+    # Rows are budgeted to fill the sheet: each spans the full usable width so
+    # the right-hand side carries drawing rather than dead margin.  The last
+    # row stops at y 372 to stay clear of the worksheet title block (which
+    # begins at y 375.9), even though the frame runs on to y 410.
+    sh.zone(CONTENT_LEFT, 42, 214, 196, "RASPBERRY PI 5 -- GPIO HEADER (J8)")
+    sh.zone(222, 42, 356, 196, "GPS RECEIVER (UART)")
+    sh.zone(364, 42, CONTENT_RIGHT, 196, "BOUNDARY INDICATORS")
+    sh.zone(CONTENT_LEFT, 204, CONTENT_RIGHT, 298,
             "DIFFERENTIAL DRIVE -- BTS7960 + DRIVE MOTORS")
-    sh.zone(CONTENT_LEFT, 314, 300, 404,
+    sh.zone(CONTENT_LEFT, 306, 330, 372,
             "OBSTACLE SENSOR -- HC-SR04 + 3.3V LEVEL SHIFT")
-    sh.zone(306, 314, CONTENT_RIGHT, 404,
+    sh.zone(338, 306, CONTENT_RIGHT, 372,
             "MOTOR SUPPLY -- EXTERNAL BATTERY")
 
     # ---------------- zone A: Raspberry Pi header -------------------------- #
     J1 = sh.place("RPI5_J8_HEADER", "J1", "Raspberry Pi 5 (J8 40-pin GPIO)",
-                  106.68, 129.54,
+                  116.84, 129.54,
                   ref_off=(0, -69.54), ref_j="center",
                   val_off=(0, -61.54), val_j="center")
 
@@ -435,10 +436,10 @@ def build() -> Sheet:
         if net is None:
             sh.no_connects.append((px, py))
         else:
-            sh.stub(J1, number, "L" if number % 2 else "R", 5.08, net)
+            sh.stub(J1, number, "L" if number % 2 else "R", 7.62, net)
 
     # ---------------- zone B: GPS + local decoupling ----------------------- #
-    U1 = sh.place("NEO_M8N_GPS", "U1", "NEO-M8N GPS", 260.35, 88.9,
+    U1 = sh.place("NEO_M8N_GPS", "U1", "NEO-M8N GPS", 288.29, 88.9,
                   ref_off=(0, -30.48), ref_j="center",
                   val_off=(0, -22.86), val_j="center")
     sh.stub(U1, 1, "L", 5.08, "+5V")
@@ -446,23 +447,23 @@ def build() -> Sheet:
     sh.stub(U1, 3, "R", 5.08, "GPIO15_RXD")   # GPS TXD -> Pi RXD (GPIO15)
     sh.stub(U1, 4, "R", 5.08, "GPIO14_TXD")   # Pi TXD (GPIO14) -> GPS RXD
 
-    C1 = sh.place("C", "C1", "100nF", 215.9, 160.02,
+    C1 = sh.place("C", "C1", "100nF", 240.03, 160.02,
                   ref_off=(6.35, -3.81), ref_j="left",
                   val_off=(6.35, 3.81), val_j="left")
     sh.stub(C1, 1, "U", 10.16, "+5V")
     sh.stub(C1, 2, "D", 10.16, "GND")
-    sh.texts.append(("C1: local decoupling", 240, 160.02, TXT, False))
+    sh.texts.append(("C1: local decoupling", 265, 160.02, TXT, False))
 
     # ---------------- zone C: buzzer + status LEDs ------------------------- #
-    BZ1 = sh.place("BUZZER", "BZ1", "Buzzer", 330.2, 100.33,
+    BZ1 = sh.place("BUZZER", "BZ1", "Buzzer", 384.81, 100.33,
                    ref_off=(12.7, -3.81), ref_j="left",
                    val_off=(12.7, 3.81), val_j="left")
     sh.stub(BZ1, 1, "U", 12.7, "GPIO17_BUZZER")
     sh.stub(BZ1, 2, "D", 12.7, "GND")
 
     for x, rref, dref, net, colour in (
-            (375.92, "R1", "D1", "GPIO27_LED_RED", "LED_Red"),
-            (419.1, "R2", "D2", "GPIO22_LED_GRN", "LED_Green")):
+            (452.12, "R1", "D1", "GPIO27_LED_RED", "LED_Red"),
+            (519.43, "R2", "D2", "GPIO22_LED_GRN", "LED_Green")):
         r = sh.place("R", rref, "220R", x, 90.17,
                      ref_off=(5.08, -3.81), ref_j="left",
                      val_off=(5.08, 3.81), val_j="left")
@@ -474,10 +475,10 @@ def build() -> Sheet:
         sh.stub(d, 2, "D", 12.7, "GND")
 
     # ---------------- zone D: drivers, motors, local decoupling ------------ #
-    U_L = sh.place("BTS7960", "U_L", "BTS7960 (L motor)", 100.33, 254,
+    U_L = sh.place("BTS7960", "U_L", "BTS7960 (L motor)", 119.38, 254,
                    ref_off=(0, -29.21), ref_j="center",
                    val_off=(0, 31.75), val_j="center")
-    U_R = sh.place("BTS7960", "U_R", "BTS7960 (R motor)", 247.65, 254,
+    U_R = sh.place("BTS7960", "U_R", "BTS7960 (R motor)", 300.99, 254,
                    ref_off=(0, -29.21), ref_j="center",
                    val_off=(0, 31.75), val_j="center")
 
@@ -510,7 +511,7 @@ def build() -> Sheet:
         sh.wire(sh.pin(u, 11), sh.pin(m, 1))
         sh.wire(sh.pin(u, 12), sh.pin(m, 2))
 
-    for cref, cx in (("C3", 340.36), ("C4", 381.0)):
+    for cref, cx in (("C3", 440.69), ("C4", 510.54)):
         c = sh.place("C", cref, "100nF", cx, 236.22,
                      ref_off=(6.35, -3.81), ref_j="left",
                      val_off=(6.35, 3.81), val_j="left")
@@ -518,9 +519,11 @@ def build() -> Sheet:
         sh.stub(c, 2, "D", 10.16, "GND")
 
     # ---------------- zone E: HC-SR04 + level shifter ---------------------- #
-    U2 = sh.place("HC_SR04", "U2", "HC-SR04 (Front)", 107.95, 350.52,
-                  ref_off=(0, -24.13), ref_j="center",
-                  val_off=(0, -16.51), val_j="center")
+    # Ref/value go below the body and the divider hangs off the ECHO line, so
+    # the whole zone fits the 66 mm row that clears the title block.
+    U2 = sh.place("HC_SR04", "U2", "HC-SR04 (Front)", 107.95, 334.01,
+                  ref_off=(0, 21.59), ref_j="center",
+                  val_off=(0, 29.21), val_j="center")
     sh.stub(U2, 1, "L", 5.08, "+5V")
     sh.stub(U2, 2, "L", 5.08, "GND")
     sh.stub(U2, 3, "R", 5.08, "GPIO23_TRIG")
@@ -532,22 +535,23 @@ def build() -> Sheet:
     e = sh.pin(U2, 4)
     # Ref/value go to the *left* of R3/R4: the right-hand side is where the
     # GPIO24_ECHO label sits, and at this text size the two would touch.
-    r3 = sh.place("R", "R3", "1k", 200.66, 363.22,
-                  ref_off=(-5.08, -3.81), ref_j="right",
-                  val_off=(-5.08, 3.81), val_j="right")
-    r4 = sh.place("R", "R4", "2k", 200.66, 383.54,
-                  ref_off=(-5.08, -3.81), ref_j="right",
-                  val_off=(-5.08, 3.81), val_j="right")
+    r3 = sh.place("R", "R3", "1k", 190.5, 346.71,
+                  ref_off=(5.08, -3.81), ref_j="left",
+                  val_off=(5.08, 3.81), val_j="left")
+    r4 = sh.place("R", "R4", "2k", 190.5, 361.95,
+                  ref_off=(5.08, -3.81), ref_j="left",
+                  val_off=(5.08, 3.81), val_j="left")
     node = sh.pin(r3, 2)
     sh.wire(e, sh.pin(r3, 1))
     sh.junctions.append(node)
     sh.stub(r3, 2, "R", 15.24, "GPIO24_ECHO")
-    sh.wire(node, sh.pin(r4, 1))
-    sh.stub(r4, 2, "D", 5.08, "GND")
-    sh.texts.append(("R3/R4 divider: 5V x 2k/(1k+2k) = 3.33V (matches WIRING.md)",
-                     30, 372, TXT, False))
+    # R4's top pin is placed exactly on the node, so no link wire is needed.
+    # Take GND out to the left: directly below R4 would run past the bottom of
+    # the row, and the row cannot grow because of the title block.
+    sh.stub(r4, 2, "L", 5.08, "GND")
+    sh.texts.append(("R3/R4: 5V x 2k/(1k+2k) = 3.33V", 30, 368, TXT, False))
 
-    C2 = sh.place("C", "C2", "100nF", 255.27, 350.52,
+    C2 = sh.place("C", "C2", "100nF", 255.27, 337.82,
                   ref_off=(6.35, -3.81), ref_j="left",
                   val_off=(6.35, 3.81), val_j="left")
     sh.stub(C2, 1, "U", 10.16, "+5V")
@@ -557,21 +561,21 @@ def build() -> Sheet:
     # B+ -> F1 -> +VMOTOR (feeds both drivers).  The label must be on the far
     # side of the fuse, never bridging it.
     BT1 = sh.place("BATTERY_PACK", "BT1", "External 12-24V Li-ion Pack",
-                   335.28, 368.3,
-                   ref_off=(12.7, -6.35), ref_j="left",
-                   val_off=(12.7, 6.35), val_j="left")
+                   379.73, 347.98,
+                   ref_off=(12.7, -3.81), ref_j="left",
+                   val_off=(12.7, 3.81), val_j="left")
     # F1 sits directly above the pack, on the same x as its + pin, so the
     # battery-to-fuse link is one vertical wire.
-    F1 = sh.place("FUSE", "F1", "10A", 345.44, 340.36,
-                  ref_off=(0, -7.62), ref_j="center",
-                  val_off=(0, 8.89), val_j="center")
+    F1 = sh.place("FUSE", "F1", "10A", 389.89, 325.12,
+                  ref_off=(-16.51, 0), ref_j="right",
+                  val_off=(-16.51, 7.62), val_j="right")
     sh.wire(sh.pin(BT1, 1), sh.pin(F1, 1))
     sh.stub(F1, 2, "R", 10.16, "+VMOTOR")
-    sh.stub(BT1, 2, "D", 10.16, "GND")
+    sh.stub(BT1, 2, "L", 5.08, "GND")
 
-    sh.texts.append(("Battery NEGATIVE ties to the common Pi GND.", 30, 380, TXT, False))
-    sh.texts.append(("Battery POSITIVE feeds both BTS7960", 30, 388, TXT, False))
-    sh.texts.append(("drivers through F1 (10A).", 30, 396, TXT, False))
+    sh.texts.append(("Battery NEGATIVE ties to Pi GND.", 455, 325, TXT, False))
+    sh.texts.append(("Battery POSITIVE -> F1 -> +VMOTOR,", 455, 333, TXT, False))
+    sh.texts.append(("which feeds both BTS7960 drivers.", 455, 341, TXT, False))
 
     return sh
 

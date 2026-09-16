@@ -47,6 +47,11 @@ exactly as on the real J8.
 If you instead print at 100% on **A2**, the text will simply look large: that
 is the trade the drawing is making, and it is deliberate.
 
+Each row of zone boxes spans the full usable width of the sheet, so the
+right-hand side carries drawing rather than dead margin. The sheet is A2 and
+the content is sized for that, so the drawing is meant to be read scaled to
+A4, not tiled.
+
 ## Files
 
 | File | Purpose |
@@ -155,9 +160,9 @@ function findDeep(root, sel) {
   return found;
 }
 const v = findDeep(document, 'kc-schematic-viewer')[0];
-const cam = v.viewer.viewport.camera;      // {center: {x, y}, zoom, ...}
-cam.center = { x: 106.68, y: 85.09 };      // frame the header
-cam.zoom = v.viewer.viewport.width / 130;  // 130 mm wide
+const cam = v.viewer.viewport.camera;       // {center: {x, y}, zoom, ...}
+cam.center = { x: 116.84, y: 120 };         // frame the header zone
+cam.zoom = v.viewer.viewport.width / 200;   // 200 mm wide
 v.viewer.draw();
 ```
 
@@ -165,9 +170,29 @@ The A2 worksheet's drawing frame inner border sits 10 mm in from each page
 edge. KiCad's title block is a fixed 108 × 32 mm rectangle anchored to the
 **frame's** bottom-right corner — *not* the page corner, which is an easy and
 silent mistake: assuming the page corner put zone D underneath the title block.
-On A2 the keep-out is therefore x 473.5–582, y 375.9–408 mm, and the whole
-content column (`CONTENT_LEFT`…`CONTENT_RIGHT`, x 18–470) sits clear of it, so
-every zone box shares the same left and right edge.
+On A2 the keep-out is therefore x 473.5–582, y 375.9–408 mm.
+
+Because that keep-out only bites the bottom-right corner, every zone row spans
+the full usable width (x 18–574) and the *last* row simply stops at y 372 so it
+clears the title block, instead of narrowing the whole drawing to dodge it.
+
+### The title block size itself is not ours to set
+
+The title block is drawn by KiCad from a **worksheet template**, not from the
+schematic. `page_layout_descr_file` is empty in `geofence_lawnmower.kicad_pro`,
+so the built-in default worksheet is in use, and that is where its 108 × 32 mm
+geometry comes from — which is also why it did not grow when the drawing text
+did, and now looks small next to it.
+
+Two consequences worth knowing before trying to "fix" it:
+
+- Changing it means adding a custom `.kicad_wks` and pointing
+  `page_layout_descr_file` at it. That file replaces the **entire** page layout,
+  frame and index band included, not just the title block.
+- kicanvas always draws KiCad's built-in worksheet, so a custom `.kicad_wks`
+  **cannot be render-verified with the tooling described below** — it can only
+  be checked by opening the project in KiCad. The measured title-block bounds
+  above are still useful for laying out the drawing around it.
 
 Those numbers were measured off the rendered sheet rather than assumed. The
 reliable way to do that is to read the canvas pixels and count red-dominant
