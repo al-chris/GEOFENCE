@@ -305,6 +305,23 @@ apt-cache pkgnames | grep '^ros-.*-ros-base$'
 sudo apt install -y ros-jazzy-ros-base python3-colcon-common-extensions
 ```
 
+> **Important:** `nmea_navsat_driver` is **not** part of `ros-base`. `geofence_launch.py` starts
+> `nmea_serial_driver` from it, so install it here — otherwise the launch aborts with
+> *package 'nmea_navsat_driver' not found*:
+>
+> ```bash
+> sudo apt install -y ros-jazzy-nmea-navsat-driver
+> source /opt/ros/jazzy/setup.bash
+> ```
+>
+> With a bare `ros-base` install (driver missing), `geofence_launch.py` now skips the GPS
+> driver with a warning and still starts `geofence_node` and `motor_controller_node`, so you
+> can test using a simulated fix:
+>
+> ```bash
+> ros2 run virtual_geofence mock_gps_publisher
+> ```
+
 6. Install `uv` for dependency management
 
 ```bash
@@ -465,6 +482,7 @@ CTRL-C to quit
 |-------|-------|----------|
 | **Keys don't respond** | Teleop terminal not in focus | Click on the teleop terminal window to give it keyboard focus |
 | **`teleop_twist_keyboard` command not found** | Package not installed | Run `sudo apt install ros-jazzy-teleop-twist-keyboard` |
+| **`package 'nmea_navsat_driver' not found`** | GPS driver package missing — it is not included in `ros-base` | Run `sudo apt install ros-jazzy-nmea-navsat-driver`, then `source /opt/ros/jazzy/setup.bash` and rebuild/re-source the workspace |
 | **Robot doesn't move** | Geofence node is blocking | Check if you are already outside the boundary. Re-enter the boundary or update `boundary.yaml`. |
 | **Robot moves erratically** | Conflicting publishers | Ensure no other nodes (like an autonomous planner) are publishing to `/cmd_vel` |
 
