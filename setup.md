@@ -356,6 +356,18 @@ uv venv --system-site-packages
 uv pip install -r requirements.txt
 ```
 
+> **Do not upgrade NumPy to 2.x in this venv.** Because `.venv` comes first on `PYTHONPATH`,
+> its NumPy shadows the system NumPy that `apt`-installed ROS packages are built against.
+> `nmea_serial_driver` imports `/usr/lib/python3/dist-packages/transforms3d` (0.3.1), which
+> calls `np.maximum_sctype` — removed in NumPy 2.0 — so the GPS driver dies right after start
+> with `AttributeError: 'np.maximum_sctype' was removed in the NumPy 2.0 release`.
+> `requirements.txt` therefore pins `numpy<2` (Ubuntu 24.04 / Jazzy ship NumPy 1.26.4).
+> If you already installed 2.x, downgrade it:
+>
+> ```bash
+> uv pip install 'numpy<2'
+> ```
+
 ---
 
 ## Part 6: Build the ROS 2 Workspace
@@ -483,6 +495,7 @@ CTRL-C to quit
 | **Keys don't respond** | Teleop terminal not in focus | Click on the teleop terminal window to give it keyboard focus |
 | **`teleop_twist_keyboard` command not found** | Package not installed | Run `sudo apt install ros-jazzy-teleop-twist-keyboard` |
 | **`package 'nmea_navsat_driver' not found`** | GPS driver package missing — it is not included in `ros-base` | Run `sudo apt install ros-jazzy-nmea-navsat-driver`, then `source /opt/ros/jazzy/setup.bash` and rebuild/re-source the workspace |
+| **`AttributeError: np.maximum_sctype was removed in the NumPy 2.0 release`** and `nmea_serial_driver` exits immediately | NumPy 2.x in `.venv` shadows the system NumPy that `transforms3d` 0.3.1 expects | Run `uv pip install 'numpy<2'`, then `source source_all.bash` and relaunch |
 | **Robot doesn't move** | Geofence node is blocking | Check if you are already outside the boundary. Re-enter the boundary or update `boundary.yaml`. |
 | **Robot moves erratically** | Conflicting publishers | Ensure no other nodes (like an autonomous planner) are publishing to `/cmd_vel` |
 

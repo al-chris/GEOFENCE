@@ -7,7 +7,10 @@ requires-python = ">=3.12"
 dependencies = [
     "filterpy>=1.4.5",
     "shapely>=2.0.0",
-    "numpy>=1.24.0",
+    # Pinned below 2.0: the venv shadows the ROS 2 system NumPy, and apt-installed
+    # transforms3d 0.3.1 (used by nmea_navsat_driver) calls np.maximum_sctype,
+    # removed in NumPy 2.0.
+    "numpy>=1.24.0,<2.0",
     "matplotlib>=3.1.0",
     "PyYAML>=6.0",
     "lgpio>=0.2.2.0; sys_platform == 'linux'",
