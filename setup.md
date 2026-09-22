@@ -43,6 +43,11 @@ When prompted about OS customization settings, click **Edit Settings** and confi
 - **General tab:** Set a hostname, username, and password. Configure Wi-Fi if you want the Pi to connect to your network automatically on first boot.
 - **Services tab:** Enable SSH. This allows you to control the Pi from your main computer, which is especially useful for server installs without a monitor.
 
+> **Note the hostname you set** (this guide uses `geofence-pi`). Ubuntu images do **not** ship
+> `avahi-daemon`, so `<hostname>.local` will not resolve until you add it — Raspberry Pi OS does this
+> for you. See [Hostname & mDNS](#6-hostname--mdns-local-addresses) below; until then, reach the Pi
+> by IP address.
+
 Click **Save**, then **Yes** to apply settings.
 
 ### 4. Write to the SD Card
@@ -56,6 +61,128 @@ Insert the SD card into the Raspberry Pi 5 and power it on.
 > **Be patient:** The first boot takes several minutes as Ubuntu configures network settings and resizes the filesystem.
 
 Log in using the username and password you set in the Imager.
+
+### 6. Hostname & mDNS (`.local` addresses)
+
+Raspberry Pi OS starts `avahi-daemon` for you, so `raspberrypi.local` simply works. **Ubuntu does
+not.** Ubuntu Server ships neither `avahi-daemon` nor `libnss-mdns`, and 24.04's `systemd-resolved`
+has its own mDNS responder switched off:
+
+```bash
+systemctl is-active avahi-daemon    # -> inactive (package not installed)
+resolvectl status | grep Protocols  # -> Protocols: -LLMNR -mDNS -DNSOverTLS ...
+ss -lun | grep 5353                 # -> no output: nothing answers mDNS
+```
+
+With neither responder running, the Pi is invisible to `*.local` resolution: `ping geofence-pi.local`
+from your laptop fails even though the Pi is online and `ping <pi-ip>` works. The hostname set in
+Step 3 exists locally on the Pi but is never announced on the LAN, so the only way in afterwards is
+an IP address that changes whenever DHCP hands out a new lease. Set the hostname you intend to type
+**before** you rely on it — this guide uses `geofence-pi`.
+
+> **Do not verify this with `resolvectl query`.** On the Pi, `resolvectl query geofence-pi.local`
+> returns an address and looks like success, but reports `Data from: synthetic`: `systemd-resolved`
+> synthesises records for its *own* hostname locally and never touches the network. Test from the
+> client, or with `avahi-resolve` as the script below does.
+
+#### Setup script
+
+Save as `setup-mdns.sh` and run it once on the Pi (`bash setup-mdns.sh`). It is idempotent — safe to
+re-run after a re-flash or an OS upgrade.
+
+```bash
+#!/usr/bin/env bash
+# Publish this machine as <hostname>.local on the LAN.
+# Ubuntu images omit avahi (Raspberry Pi OS ships it), so .local names do not resolve.
+set -euo pipefail
+
+# 1. Responder (avahi-daemon), .local resolution for this host (libnss-mdns), and the
+#    CLI tools used to verify it (avahi-utils: avahi-resolve / avahi-browse).
+sudo apt update
+sudo apt install -y avahi-daemon libnss-mdns avahi-utils
+sudo systemctl enable --now avahi-daemon.socket avahi-daemon
+
+# 2. Two responders must not share :5353, so turn resolved's own mDNS off if it is on.
+if resolvectl status 2>/dev/null | grep -q '+mDNS'; then
+    sudo mkdir -p /etc/systemd/resolved.conf.d
+    printf '[Resolve]\nMulticastDNS=no\n' \
+        | sudo tee /etc/systemd/resolved.conf.d/avahi.conf >/dev/null
+    sudo systemctl restart systemd-resolved
+fi
+
+# 3. Verify: something listens on :5353, libnss-mdns wired nsswitch, name really published.
+ss -lun | grep -q ':5353' \
+    || { echo "FAIL: nothing is listening on UDP 5353" >&2; exit 1; }
+grep -q mdns4_minimal /etc/nsswitch.conf \
+    || { echo "FAIL: libnss-mdns did not update /etc/nsswitch.conf" >&2; exit 1; }
+name="$(hostname).local"
+avahi-resolve -n "$name" >/dev/null \
+    || { echo "FAIL: $name was not resolved" >&2; exit 1; }
+
+echo "OK: this host is published as $name"
+avahi-resolve -n "$name"
+```
+
+#### What each package does
+
+| Package | Job |
+|---------|-----|
+| `avahi-daemon` | Answers mDNS on UDP 5353 for `<hostname>.local` (registers A and AAAA) |
+| `libnss-mdns` | Adds `mdns4_minimal [NOTFOUND=return]` to the `hosts:` line of `/etc/nsswitch.conf`, so the Pi can resolve other machines' `.local` names |
+| `avahi-utils` | Only the `avahi-resolve` / `avahi-browse` CLIs used to verify — not needed to run |
+
+The daemon logs its published name on every start, which is the quickest confirmation:
+
+```bash
+journalctl -u avahi-daemon -b --no-pager | grep 'Host name'
+# avahi-daemon[…]: Server startup complete. Host name is geofence-pi.local.
+```
+
+#### Verify from the client, not the Pi
+
+```bash
+# Run on the laptop / phone on the same LAN
+ping geofence-pi.local
+avahi-resolve -n geofence-pi.local    # avahi-utils, on a Linux client
+```
+
+Once the name resolves, the remote steps in this guide can use it instead of an IP: `scp`/`rsync` of
+the workspace, and the `source_all.bash` sessions you run over SSH.
+
+```bash
+ssh ubuntu@geofence-pi.local
+cd ~/GEOFENCE && source source_all.bash
+```
+
+> **Windows and macOS clients need nothing extra.** Windows 10+ and macOS resolve `.local`
+> natively; a Linux client needs `libnss-mdns` (`sudo apt install libnss-mdns`).
+
+> **This is name resolution only — it does not change ROS 2 discovery.** DDS finds peers through
+> multicast on the interfaces, not through `.local` names, so a laptop that cannot see the Pi's
+> topics is a `ROS_DOMAIN_ID` / firewall question, not an mDNS one.
+
+> **Prefer Ethernet, and expect trouble on phone hotspots.** Many APs — Android phone hotspots in
+> particular — do not forward multicast between clients, so the mDNS query never reaches the Pi.
+> avahi can be running perfectly and `.local` will still fail. If `ping <pi-ip>` works but
+> `<hostname>.local` does not, the AP is dropping multicast, not the Pi misbehaving. A quick sniff on
+> the Pi shows whether any mDNS traffic reaches it at all:
+>
+> ```bash
+> sudo tcpdump -ni wlan0 -c 10 udp port 5353    # needs tcpdump, sudo
+> ```
+
+> **Netplan can re-enable the other responder.** If a link sets `mDNS: true`, `systemd-networkd`
+> turns `MulticastDNS` back on for that interface and overrides the drop-in the script writes. Leave
+> `mDNS:` unset (or `false`) when using avahi.
+
+#### Symptoms and fixes
+
+| Symptom | Fix |
+|---------|-----|
+| **`ssh <hostname>.local` fails but `ssh <pi-ip>` works** | Run `setup-mdns.sh` on the Pi. Ubuntu ships no mDNS responder, so the name is local to the Pi and never announced — this is a one-off package install, not a config difference to hunt for. |
+| **`*.local` stopped resolving after moving from Raspberry Pi OS to Ubuntu** | Same cause. Raspberry Pi OS ships `avahi-daemon`; Ubuntu images do not, and `systemd-resolved`'s own responder is off (`Protocols: -mDNS`). Run the script above. |
+| **`resolvectl query <host>.local` succeeds on the Pi but no other device can reach it** | Not a valid test: `systemd-resolved` synthesises records for its own hostname locally (`Data from: synthetic`) without touching the network. Check the responder instead with `ss -lun \| grep 5353` and `avahi-resolve -n <host>.local`, then test from the client. |
+| **avahi is running, but `.local` still fails from the client** | The query is not arriving. Many APs (Android phone hotspots especially) do not forward multicast between clients. If `ping <pi-ip>` works and `<host>.local` does not, the AP is dropping multicast — confirm with `sudo tcpdump -ni wlan0 udp port 5353`. |
 
 ---
 
