@@ -3,6 +3,7 @@ from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 import os
 from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 
@@ -25,6 +26,8 @@ def generate_launch_description():
     hardware_params = LaunchConfiguration('hardware_params')
     enable_motor_control = LaunchConfiguration('enable_motor_control')
     use_gps_driver = LaunchConfiguration('use_gps_driver')
+    gps_port = LaunchConfiguration('gps_port')
+    gps_baud = LaunchConfiguration('gps_baud')
 
     actions = [
         DeclareLaunchArgument(
@@ -47,6 +50,17 @@ def generate_launch_description():
             default_value='true',
             description='Launch the NMEA GPS driver (requires nmea_navsat_driver + a serial GPS).',
         ),
+        DeclareLaunchArgument(
+            'gps_port',
+            default_value='/dev/ttyAMA0',
+            description='Serial port for the NMEA GPS (/dev/ttyAMA0, /dev/ttyS0, /dev/ttyUSB0...).',
+        ),
+        DeclareLaunchArgument(
+            'gps_baud',
+            default_value='9600',
+            description='NMEA GPS baud rate. u-blox defaults to 9600; try 38400/115200 if '
+                        'sentences arrive with invalid checksums.',
+        ),
     ]
 
     # nmea_navsat_driver is a third-party package and is NOT part of ros-jazzy-ros-base.
@@ -64,8 +78,8 @@ def generate_launch_description():
                 ],
                 parameters=[{
                     # Use the system serial port matching your device
-                    'port': '/dev/ttyAMA0',
-                    'baud': 9600,
+                    'port': gps_port,
+                    'baud': ParameterValue(gps_baud, value_type=int),
                     'frame_id': 'gps',
                 }],
                 condition=IfCondition(use_gps_driver),

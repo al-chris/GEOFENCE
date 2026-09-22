@@ -133,9 +133,44 @@ sudo reboot
 **Step 4: After reboot, verify GPS is working:**
 ```bash
 ls -la /dev/ttyAMA0
-sudo cat /dev/ttyAMA0
+stty -F /dev/ttyAMA0 9600 raw -echo
+sudo cat /dev/ttyAMA0 | cat -v
 ```
-You should see clean NMEA sentences like `$GPGGA,...` and `$GPRMC,...` streaming in. Press `Ctrl+C` to stop.
+Clean NMEA sentences like `$GNGGA,...` and `$GNRMC,...` should stream in, one burst per second. Press `Ctrl+C` to stop.
+
+**Sentences arriving is not the same as having a fix.** Check these fields:
+
+| Sentence | Field | Meaning |
+|----------|-------|---------|
+| `$..GGA` | fix quality (2nd field) | `0` = no fix, `1` = GPS fix, `2` = DGPS |
+| `$..GGA` | satellites used | `00` = tracking nothing |
+| `$..GGA` | HDOP | `99.99` = no usable geometry |
+| `$..RMC` | status | `A` = valid, `V` = void (no fix yet) |
+| `$..GSV` | SNR per satellite | empty or missing = no signal received |
+
+A receiver with no fix (normal indoors) looks like this:
+
+```
+$GNRMC,V,,,,,,,,,N,V*37         <- V = void, no valid position
+$GNVTG,,,,,,,,,N*2E             <- no course/speed
+$GNGGA,0,00,99.99,,,,,,*56      <- quality 0, 0 satellites, HDOP 99.99
+$GNGSA,A,1,,,,,,,,,,,,,99.99,99.99,99.99,1*33
+```
+
+In that state `nmea_serial_driver` publishes nothing on `/gps/fix`, so `geofence_node` keeps logging
+`No messages received on /gps/fix yet`. To actually obtain a fix:
+
+- Put the antenna **outdoors with a clear view of the sky** — a patch antenna indoors, or under a metal roof, will never fix.
+- Make sure the **active antenna is connected** (and the module is not expecting one that is missing).
+- Allow **30 s (hot start) up to ~12 min (cold start with no backup battery)**.
+- Watch the `$..GSV` sentences: satellites with non-empty SNR fields are being tracked. **No GSV sentences at all** means nothing is coming in on the antenna — check the connector.
+
+While waiting for a fix, the geofence logic can still be tested with a simulated position:
+
+```bash
+ros2 launch virtual_geofence geofence_launch.py use_gps_driver:=false
+ros2 run virtual_geofence mock_gps_publisher
+```
 
 ---
 
@@ -496,6 +531,7 @@ CTRL-C to quit
 | **`teleop_twist_keyboard` command not found** | Package not installed | Run `sudo apt install ros-jazzy-teleop-twist-keyboard` |
 | **`package 'nmea_navsat_driver' not found`** | GPS driver package missing — it is not included in `ros-base` | Run `sudo apt install ros-jazzy-nmea-navsat-driver`, then `source /opt/ros/jazzy/setup.bash` and rebuild/re-source the workspace |
 | **`AttributeError: np.maximum_sctype was removed in the NumPy 2.0 release`** and `nmea_serial_driver` exits immediately | NumPy 2.x in `.venv` shadows the system NumPy that `transforms3d` 0.3.1 expects | Run `uv pip install 'numpy<2'`, then `source source_all.bash` and relaunch |
+| **`Received a sentence with an invalid checksum` in a loop, and `/gps/fix` stays silent** | Wrong baud rate, or the receiver has no fix yet — `nmea_serial_driver` publishes nothing until it has a valid position | Check the raw port with `stty -F /dev/ttyAMA0 9600 raw -echo; sudo cat /dev/ttyAMA0` and read the GGA quality / RMC status fields (see Step 4). Garbled bytes → try `gps_baud:=38400`. Clean sentences but `0,00,99.99` → go outdoors and wait for a fix |
 | **Robot doesn't move** | Geofence node is blocking | Check if you are already outside the boundary. Re-enter the boundary or update `boundary.yaml`. |
 | **Robot moves erratically** | Conflicting publishers | Ensure no other nodes (like an autonomous planner) are publishing to `/cmd_vel` |
 
